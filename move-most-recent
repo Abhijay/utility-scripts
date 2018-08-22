@@ -1,0 +1,14 @@
+#!/bin/bash
+#Move most recently downloaded file/folder
+mostRecent=$(cd ~/Downloads; mdls -name kMDItemFSName -name kMDItemDateAdded -raw * | xargs -0 -I {} echo {} | sed 'N;s/\n/ /' | sort | sed 's/^.*0000\ //' | grep -Gv "^\.DS_Store" | tail -n 1);
+dest=$1
+if [[ $dest == "" ]]; then 
+    dest="./"
+fi
+read -p "Move $mostRecent to $dest? (y/n): " -n 1 -r
+echo    # (optional) move to a new line
+if [[ $REPLY =~ ^[Yy]$ ]]
+then
+    mv ~/Downloads/"${mostRecent}" $dest
+fi
+

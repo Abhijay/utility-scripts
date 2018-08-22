@@ -1,0 +1,6 @@
+# This automatically downloads and runs the Java JDK installer, as well as
+# cleans up old versions.
+
+
+$(cd /Library/Java/JavaVirtualMachines/ ; rm -rf $(ls | grep jdk) || su -c "!!")
+$(brew cask install java8)

@@ -1,0 +1,4 @@
+#!/bin/bash
+
+cd ~/code/shr/shr-cli
+node . ../shr_spec/spec $@

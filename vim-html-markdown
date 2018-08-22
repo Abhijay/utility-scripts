@@ -1,0 +1,14 @@
+#!/bin/sh
+
+file=$1
+markdown=`tempfile --suffix=.mdown`
+
+# Convert to markdown with pandocs
+pandoc "$file" -f html -t markdown -o $markdown
+
+# Edit the markdown file
+vim $markdown
+
+# And convert it back to html, which can be uploaded to Google Docs
+pandoc $markdown -f markdown -t html -o "$file"
+
