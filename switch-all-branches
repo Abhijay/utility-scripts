@@ -1,4 +1,5 @@
 #!/bin/bash
+# Author: Abhijay Bhatnagar
 
 # This tool helps manage the different SHR branches
 # It is recommended you alias it to a shorter command to ease use.
