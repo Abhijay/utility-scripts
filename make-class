@@ -1,33 +1,115 @@
 #!/bin/bash
+#
+#while [ ! $# -eq 0 ]
+#do
+#	case "$1" in
+#		#--help | -h)
+#		#	helpmenu
+#		#	exit
+#		#	;;
+#		--latex | -l)
+#            do_latex=true;
+#			exit
+#			;;
+#	esac
+#done
+#
 
-default_term="Fall-2018"
+default_term="Summer-2020"
 class=$1
 
 if [[ $2 != "" ]]; then
   default_term=$2
 fi
 
+function initialize_git() {
+  if [[ ! -d ".git" ]]; then
+    git init;
+
+    echo "# $default_term : $class" > ./README.md;
+    echo ".DS_Store" > .gitignore;
+    git add .;
+    git commit -am "Initial Commit" | head -2;
+
+    create_remote_repo;
+  fi
+}
+
+function load_spw() {
+  spw='Gitsze4yj'
+}
+
+function create_remote_repo() {
+  api_base="https://api.github.com"
+  personal_account_id="abhijay"
+  school_account_id="abhijay-berkeley"
+  load_spw
+
+  curl -s --user "${school_account_id}:${spw}" \
+    ${api_base}/user/repos \
+    -d "{ \
+          \"name\":\"$class\", \
+          \"private\":true \
+        }" >/dev/null && echo "Repo: ${school_account_id}/${class} created" && \
+
+  curl -s --user "${school_account_id}:${spw}" \
+    -X PUT -d '{"permission":"admin"}' \
+    "${api_base}/repos/${school_account_id}/$class/collaborators/${personal_account_id}" > /dev/null \
+      && echo "Invitation: sent" && \
+
+  invites=$(curl -s --user "$personal_account_id:$spw" ${api_base}/user/repository_invitations \
+    | python -c "import sys, json; out= json.load(sys.stdin); print [invite['id'] for invite in out if invite['repository']['owner']['login'] == '$school_account_id']"\
+    | tr -d '[],' \
+    ) && \
+
+  $(for invite in $invites; do
+    curl -s --user "$personal_account_id:$spw" \
+      -X PATCH -d '' \
+      https://api.github.com/user/repository_invitations/$invite  > /dev/null;
+  done)  && echo "Invitation: accepted" && \
+
+  git remote add origin "https://github.com/${school_account_id}/${class}" && \
+  git publish -q && echo "Repo: published to https://github.com/${school_account_id}/${class}"
+
+}
+
+#function initialize_gdrive() {
+#gdrive list --order modifiedByMeTime | grep test-dir | head -n 1 | awk '{print $1}'
+#gdrive mkdir --parent "test-dir" "test-dir-inner"
+#}
+
 function create_wk_folders() {
   (
   cd $1;
-  i=1;
-  while [ $i -lt 13 ]; do
-    mkdir "wk$i";
-    i=$((i+1))
+  for i in 0{1..9} {10..12}; do
+    if [[ $1 == "lab" ]]; then
+      mkdir "lab$i" 2>/dev/null
+    else
+      mkdir "wk$i" 2>/dev/null;
+    fi
+    if [[ $do_latex && $1 == "homework" ]]; then
+      touch wk${i}/wk${i}hw.tex
+    else
+      touch "wk${i}/.gitkeep"
+    fi
   done
   )
 }
 
 function create_base_folder() {
-  cd ~/code/abhijay-berkeley/;
+  cd ~/School/Berkeley
+  mkdir -p $default_term
   cd $default_term;
   mkdir $class;
   cd $class;
-  git init;
+
   mkdir homework lab notes projects;
+  touch projects/.gitkeep;
   create_wk_folders "homework"
   create_wk_folders "notes"
   create_wk_folders "lab"
+
+  initialize_git
 }
 
 create_base_folder

@@ -1,14 +1,39 @@
 #!/bin/bash
+num=1
+while getopts 'cn:' option;
+do
+  case "$option" in
+    c)
+       grabContents=true
+       ;;
+    n)
+       num=$2
+       ;;
+   \?) printf "illegal option: -%s\n" "$OPTARG" 1>&2
+       echo -e "$usage" 1>&2
+       exit 1
+       ;;
+    : )
+      echo "Invalid option: $OPTARG requires an argument" 1>&2
+      ;;
+  esac
+done
+shift $((OPTIND -1))
+
 #Move most recently downloaded file/folder
-mostRecent=$(cd ~/Downloads; mdls -name kMDItemFSName -name kMDItemDateAdded -raw * | xargs -0 -I {} echo {} | sed 'N;s/\n/ /' | sort | sed 's/^.*0000\ //' | grep -Gv "^\.DS_Store" | tail -n 1);
+mostRecent=$(cd ~/Downloads; mdls -name kMDItemFSName -name kMDItemDateAdded -raw * | xargs -0 -I {} echo {} | sed 'N;s/\n/ /' | sort | sed 's/^.*0000\ //' | grep -Gv "^\.DS_Store" | tail -n $num);
 dest=$1
+
+if [[ $grabContents ]]; then
+    contents="/*"
+fi
+
 if [[ $dest == "" ]]; then 
     dest="./"
 fi
-read -p "Move $mostRecent to $dest? (y/n): " -n 1 -r
+read -p "Move $mostRecent${contents} to $dest? (y/n): " -n 1 -r
 echo    # (optional) move to a new line
-if [[ $REPLY =~ ^[Yy]$ ]]
-then
-    mv ~/Downloads/"${mostRecent}" $dest
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    mv ~/Downloads/"${mostRecent}"${contents} $dest
 fi
 

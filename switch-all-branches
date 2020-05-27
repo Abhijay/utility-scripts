@@ -51,7 +51,7 @@ star_help="
     $(echo $YLW)*${NC} = branch out of sync with remote (could be local committed changes, or upstream changes; branch needs push and/or pull)
     $(echo $RED)*${NC} = branch has uncommited local changes"
 
-while getopts ':hfps:c:d' option;
+while getopts ':hfps:c:dt-:' option;
 do
   case "$option" in
     h)
@@ -79,6 +79,20 @@ do
        echo -e "${YLW}Only showing repos with diffs${NC}"
        onlyShowDiffs=true;
        ;;
+    -)
+      case "${OPTARG}" in
+          status)
+              getStatus=true;
+              ;;
+          add)
+              addAll=true;
+              ;;
+          *)
+              if [ "$OPTERR" = 1 ] && [ "${optspec:0:1}" != ":" ]; then
+                  echo "Unknown option --${OPTARG}" >&2
+              fi
+              ;;
+      esac;;
    \?) printf "illegal option: -%s\n" "$OPTARG" 1>&2
        echo -e "$usage" 1>&2
        exit 1
@@ -169,8 +183,13 @@ function git_branches()
           [[ $changed != "" ]] || continue
         fi
 
+        # if $getStatus; then
+        #   echo -e "\n${DIM}---------------------------------$NC"
+        #   echo -e "${YLW}Showing status for $sub${NC}"
+        #   cd $sub; git status; cd ../;
+        # fi
 
-          printf "%-${spacing}s [$(echo -e $outputBr)]$changed \n" "$sub"
+        printf "%-${spacing}s [$(echo -e $outputBr)]$changed \n" "$sub"
       fi
     done
 

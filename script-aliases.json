@@ -1,4 +1,6 @@
 {
   "mmr":"move-most-recent",
-  "cli":"run-cli"
+  "sa":"switch-all-branches",
+  "cli":"run-cli",
+  "textbook": "textbook.py"
 }
