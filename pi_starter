@@ -1,0 +1,67 @@
+#!/bin/bash
+
+# This is for after raspbian has been squirted onto sd
+
+#update and upgrade
+yes | sudo apt-get update && sudo apt-get upgrade
+
+#generate locales
+#sudo locale-gen en_US.UTF-8
+#sudo dpkg-reconfigure locales
+#echo "LANG=en_US.UTF-8" >> "/etc/default/locale"
+#echo "LANG=en_US.UTF-8" >> "/etc/environment"
+
+#ruby and brew
+yes | sudo apt-get install ruby-full
+printf '\n' | sh -c "$(curl -fsSL https://raw.githubusercontent.com/Linuxbrew/install/master/install.sh)" 
+
+#vim 
+yes | sudo apt-get remove vim-tiny
+yes | sudo apt-get install vim-nox
+
+#git and zsh
+yes | sudo apt-get install git zsh
+chsh -s /bin/zsh
+yes | sh -c "$(curl -fsSL https://raw.githubusercontent.com/robbyrussell/oh-my-zsh/master/tools/install.sh)"
+
+#homeshick
+git clone https://github.com/andsens/homeshick.git $HOME/.homesick/repos/homeshick
+printf '\nsource "$HOME/.homesick/repos/homeshick/homeshick.sh"' >> $HOME/.bashrc
+printf '\nsource "$HOME/.homesick/repos/homeshick/homeshick.sh"' >> $HOME/.zshrc
+
+source ~/.bashrc
+yes | homeshick clone -v https://github.com/Abhijay/zsh-dotfiles;
+yes | homeshick clone -v https://github.com/Abhijay/vim-dotfiles;
+yes | homeshick clone -v https://github.com/Abhijay/git-dotfiles;
+
+# nodejs
+wget http://node-arm.herokuapp.com/node_latest_armhf.deb
+sudo dpkg -i node_latest_armhf.deb
+node -v
+rm node_latest_armhf.deb
+
+# configure Code folder
+cd; mkdir Code; cd Code
+git clone https://github.com/Abhijay/utility-scripts.git
+mv utility-scripts Scripts
+mkdir One-offs
+mkdir -p .archive/{inactive-major-projects,inactive-pet-projects}
+
+##final system configs
+
+#setup static ip
+IPADR=$(ip -4 addr show | grep global) #192.168.1.24/24
+ROUTER=$(ip route | grep default | awk '{print $3}') #192.168.1.1
+cat /etc/resolv.conf #e.g. 192.168.1.1
+sudo echo "interface wlan0" >> /etc/dhcpcd.conf
+sudo echo "static ip_address=$IPADR" >> /etc/dhcpcd.conf
+sudo echo "static routers=$ROUTER" >> /etc/dhcpcd.conf
+sudo echo "static ip_address=$ROUTER" >> /etc/dhcpcd.conf
+sudo vim /etc/dhcpcd.conf
+
+
+#change password (standard new format w/ leading 4)
+sudo raspi-config
+
+#reboot to make sure it all takes effect
+sudo reboot
