@@ -1,0 +1,41 @@
+#!/bin/bash
+# Author: Abhijay Bhatnagar
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+BLUE='\033[0;36m'
+NC='\033[0m' # No Color
+YLW='\033[38;5;227m'
+DIM='\033[90m'
+
+# Function to list branches sorted by date with differences
+function list_branches_with_differences() {
+    echo -e "------------------------------------------------------------"
+
+    for branch in $(git for-each-ref --sort='authordate:iso8601' --format='%(refname:short)' refs/heads); do
+        # Get author date for the branch
+        authordate=$(git show -s --format='%ar' "$branch")
+
+        # Check for differences with the remote
+        ahead=$(git rev-list --count "$branch"..origin/"$branch" 2>/dev/null || echo 0)
+        behind=$(git rev-list --count origin/"$branch".."$branch" 2>/dev/null || echo 0)
+
+        # Format differences
+        differences=""
+        if [[ $ahead -gt 0 || $behind -gt 0 ]]; then
+            differences="[${GREEN}${ahead}↟${NC}, ${RED}${behind}↡${NC}]"
+        fi
+
+        # Print the branch info with colors using echo -e
+        if [[ -z "$differences" ]]; then
+            echo -e "$authordate\t$branch"
+        else
+            echo -e "$authordate\t${YLW}$branch${NC} $differences"
+        fi
+    done
+
+    echo -e "------------------------------------------------------------"
+}
+
+# Call the function
+list_branches_with_differences

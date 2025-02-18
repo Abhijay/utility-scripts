@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+#
+# Usage: swap <fromScreenIndex> <toScreenIndex>
+# Example: swap 1 2
+#          swap 2 3
+
+if [[ $# -ne 2 ]]; then
+  echo "Usage: $0 FROM_MONITOR_INDEX TO_MONITOR_INDEX (1-indexed, left to right)"
+  echo "Example: $0 1 2"
+  exit 1
+fi
+
+from="$1"
+to="$2"
+
+# Use macOS "open" command to call Phoenix's custom URL scheme
+open "hammerspoon://swap?from=$from&to=$to"

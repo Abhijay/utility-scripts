@@ -12,8 +12,16 @@ def call_script(scr):
             call_python_script(scr)
         else:
             call_bash_script(scr)
-    except(e):
-        print('Error running file: %s' %s)
+    except subprocess.CalledProcessError as e:
+        # This is the specific exception raised by check_call() on failure
+        print("Error running script '%s': %s" % (scr, e))
+        # Optionally exit with the same return code
+        sys.exit(e.returncode)
+    except Exception as e:
+        # This catches any other error
+        print("Unexpected error while running script '%s': %s" % (scr, e))
+        sys.exit(1)
+
 
 def call_bash_script(scr):
     subprocess.check_call("~/Code/Scripts/%s %s" % (scr, ' '.join(sys.argv[2:])), shell=True)

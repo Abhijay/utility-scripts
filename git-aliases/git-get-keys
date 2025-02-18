@@ -1,0 +1,57 @@
+#!/bin/bash
+
+# Directory to store GPG keys
+KEYS_DIR="gpg_keys"
+mkdir -p "$KEYS_DIR"
+
+# Get the repository owner and name
+repo_info=$(git config --get remote.origin.url | sed -E 's#(git@|https://)github.com[:/]([^/]+)/([^/.]+).*#\2/\3#')
+
+# Extract owner and repo name
+repo_owner=$(echo "$repo_info" | cut -d'/' -f1)
+repo_name=$(echo "$repo_info" | cut -d'/' -f2)
+
+if [[ -z "$repo_owner" || -z "$repo_name" ]]; then
+    echo "❌ Error: Could not determine repository owner or name. Are you inside a Git repo?"
+    exit 1
+fi
+
+echo "📌 Fetching contributors from GitHub for $repo_owner/$repo_name (main branch)..."
+
+# Fetch contributors from `main` branch using git log
+contributors=$(git log main --format="%an <%ae>" | sort -u)
+
+# Fetch GitHub usernames for contributors from GitHub API
+github_usernames=$(gh api -H "Accept: application/vnd.github+json" "/repos/$repo_owner/$repo_name/contributors" | jq -r '.[] | .login')
+
+# Get the currently authenticated GitHub user
+current_user=$(gh api user --jq '.login')
+
+# Ensure your username is included if missing
+if ! echo "$github_usernames" | grep -q "$current_user"; then
+    github_usernames+=$'\n'"$current_user"
+fi
+
+# Process each GitHub username
+while read -r github_username; do
+    if [[ -z "$github_username" || "$github_username" == "null" ]]; then
+        continue
+    fi
+
+    echo "🔍 Fetching GPG key for: $github_username..."
+
+    # Fetch public GPG keys
+    gpg_keys=$(gh api -H "Accept: application/vnd.github+json" "/users/$github_username/gpg_keys" | jq -r '.[].public_key')
+
+    # Save the key if available
+    if [[ -n "$gpg_keys" && "$gpg_keys" != "null" ]]; then
+        key_file="$KEYS_DIR/$github_username.gpg"
+        echo "$gpg_keys" > "$key_file"
+        echo "✅ Saved GPG key for $github_username -> $key_file"
+    else
+        echo "❌ No GPG key found for $github_username"
+    fi
+done <<< "$github_usernames"
+
+echo "📌 All available GPG keys have been saved to '$KEYS_DIR'."
+

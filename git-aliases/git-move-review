@@ -1,0 +1,58 @@
+#!/bin/bash
+
+# Prompt user for PR numbers
+read -p "Enter the old PR number: " OLD_PR
+read -p "Enter the new PR number: " NEW_PR
+REPO=$(git remote get-url origin | sed -E 's/.*github.com[:\/]([^\/]+\/[^.]+).*/\1/')
+
+# Fetch latest commit SHA of the new PR
+LATEST_COMMIT_SHA=$(curl -s -H "Authorization: token $(gh auth token)" \
+     -H "Accept: application/vnd.github.v3+json" \
+     "https://api.github.com/repos/$REPO/pulls/$NEW_PR" | jq -r '.head.sha')
+
+echo "✅ Latest commit in PR #$NEW_PR: $LATEST_COMMIT_SHA"
+
+# Fetch all reviews from the old PR
+REVIEWS=$(curl -s -H "Authorization: token $(gh auth token)" \
+               -H "Accept: application/vnd.github.v3+json" \
+               "https://api.github.com/repos/$REPO/pulls/$OLD_PR/reviews")
+
+echo "🔄 Fetching reviews from PR #$OLD_PR and transferring to PR #$NEW_PR..."
+
+# Loop through each review
+echo "$REVIEWS" | jq -c '.[]' | while read -r review; do
+    REVIEW_BODY=$(echo "$review" | jq -r '.body')
+    
+    # Post the review body to the new PR
+    curl -X POST -H "Authorization: token $(gh auth token)" \
+         -H "Accept: application/vnd.github.v3+json" \
+         -d "{\"body\": \"Previous Review: $REVIEW_BODY\", \"event\": \"COMMENT\"}" \
+         "https://api.github.com/repos/$REPO/pulls/$NEW_PR/reviews"
+
+    REVIEW_ID=$(echo "$review" | jq -r '.id')
+
+    # Fetch all comments for this review
+    COMMENTS=$(curl -s -H "Authorization: token $(gh auth token)" \
+                     -H "Accept: application/vnd.github.v3+json" \
+                     "https://api.github.com/repos/$REPO/pulls/$OLD_PR/reviews/$REVIEW_ID/comments")
+
+    # Loop through review comments
+    echo "$COMMENTS" | jq -c '.[]' | while read -r comment; do
+        COMMENT_BODY=$(echo "$comment" | jq -r '.body')
+        FILE_PATH=$(echo "$comment" | jq -r '.path')
+        POSITION=$(echo "$comment" | jq -r '.position')
+
+        # Post each comment to the new PR, using the latest commit SHA
+        curl -X POST -H "Authorization: token $(gh auth token)" \
+             -H "Accept: application/vnd.github.v3+json" \
+             -d "{
+                  \"body\": \"$COMMENT_BODY\",
+                  \"commit_id\": \"$LATEST_COMMIT_SHA\",
+                  \"path\": \"$FILE_PATH\",
+                  \"position\": $POSITION
+                }" \
+             "https://api.github.com/repos/$REPO/pulls/$NEW_PR/comments"
+    done
+done
+
+echo "✅ Review transfer complete from PR #$OLD_PR to PR #$NEW_PR"

@@ -1,0 +1,26 @@
+#!/bin/bash
+
+# Default parent branch
+PARENT_BRANCH="main"
+
+# Parse options
+while getopts "p:" opt; do
+  case $opt in
+    p)
+      PARENT_BRANCH=$OPTARG
+      ;;
+    *)
+      echo "Usage: git sign-branch [-p parent_branch]"
+      exit 1
+      ;;
+  esac
+done
+
+# Retrieve the current branch name
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+# Find the base commit
+BASE_COMMIT=$(git merge-base "$CURRENT_BRANCH" "$PARENT_BRANCH")
+
+# Rebase and sign commits
+git rebase -i "$BASE_COMMIT" --exec "git commit --amend -S --no-edit"

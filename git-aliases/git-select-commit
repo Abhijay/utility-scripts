@@ -1,0 +1,37 @@
+#!/bin/bash
+
+# Run `git sl`, reverse the output, and use `fzf` for selection with live diff preview
+selected_commit=$(git sl | tail -r | fzf --style full \
+    --border --padding 1,2 \
+    --border-label ' Demo ' --input-label ' Input ' --header-label ' File Type ' \
+    --preview 'commit_hash=$(echo "{}" | grep -oE "[0-9a-f]" | tr -d "[:space:]" | head -c 7); \
+    if [[ -n "$commit_hash" ]]; then git diff --name-only "$commit_hash"^!; else echo ""; fi' \
+    --bind 'result:transform-list-label:
+        if [[ -z $FZF_QUERY ]]; then
+          echo " $FZF_MATCH_COUNT items "
+        else
+          echo " $FZF_MATCH_COUNT matches for [$FZF_QUERY] "
+        fi
+        ' \
+    --bind 'focus:transform-preview-label:[[ -n {} ]] && printf " Previewing [%s] " {}' \
+    --bind 'focus:+transform-header:file --brief {} || echo "No file selected"' \
+    --bind 'ctrl-r:change-list-label( Reloading the list )+reload(sleep 2; git ls-files)' \
+    --color 'border:#aaaaaa,label:#cccccc' \
+    --color 'preview-border:#9999cc,preview-label:#ccccff' \
+    --color 'list-border:#669966,list-label:#99cc99' \
+    --color 'input-border:#996666,input-label:#ffcccc' \
+    --color 'header-border:#6699cc,header-label:#99ccff'
+)
+
+# Extract the commit hash from the selected row using pure Bash
+commit_hash=$(echo "$selected_commit" | grep -oE "[0-9a-f]" | tr -d "[:space:]" | head -c 7)
+
+# If a hash was found, print and copy it; otherwise, handle empty selection
+if [[ -n "$commit_hash" ]]; then
+    echo "$commit_hash" | tr -d '\n'
+    echo "$commit_hash" | pbcopy  # macOS
+    # Uncomment below for Linux (requires xclip or xsel)
+    # echo "$commit_hash" | xclip -selection clipboard
+else
+    echo ""
+fi

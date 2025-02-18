@@ -1,0 +1,28 @@
+#!/bin/bash
+
+# Check for the -u flag
+unskip=false
+while getopts "u" opt; do
+    case $opt in
+        u)
+            unskip=true
+            ;;
+        *)
+            echo "Usage: $0 [-u]"
+            exit 1
+            ;;
+    esac
+done
+
+# Process the .env.* files
+for file in .env.*; do
+    if [[ -f "$file" ]]; then
+        if [[ "$unskip" == true ]]; then
+            git update-index --no-skip-worktree "$file" && echo "✅ Success: Unskipped $file" || echo "❌ Failed: $file"
+        else
+            git update-index --skip-worktree "$file" && echo "✅ Success: Skipped $file" || echo "❌ Failed: $file"
+        fi
+    else
+        echo "⚠️ Skipped: No .env.* files found."
+    fi
+done

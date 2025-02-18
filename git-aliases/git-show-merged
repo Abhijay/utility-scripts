@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+#
+# Usage:
+#   merged-branches.sh [-c] [-h <branch>]
+#
+# Examples:
+#   merged-branches.sh
+#       Shows branches merged into "main" (excluding main, master, dev).
+#
+#   merged-branches.sh -h develop
+#       Shows branches merged into "develop" (excluding main, master, dev).
+#
+#   merged-branches.sh -c
+#       Deletes branches merged into "main" (excluding main, master, dev).
+#
+#   merged-branches.sh -c -h develop
+#       Deletes branches merged into "develop" (excluding main, master, dev).
+
+set -euo pipefail
+
+# Default head branch:
+HEAD_BRANCH="main"
+CLEAN=false
+
+# Parse options
+while getopts ":ch:" opt; do
+  case "${opt}" in
+    c)
+      CLEAN=true
+      ;;
+    h)
+      HEAD_BRANCH="${OPTARG}"
+      ;;
+    \?)
+      echo "Usage: $0 [-c] [-h <branch>]" >&2
+      exit 1
+      ;;
+  esac
+done
+
+# Shift out processed options
+shift $((OPTIND - 1))
+
+# Function to show branches merged into HEAD_BRANCH
+show_merged() {
+  # Exclude '*', master, main, dev
+  git branch --merged "${HEAD_BRANCH}" \
+    | egrep -v "(^\*|master|main|dev)"
+}
+
+# Function to delete (clean) branches merged into HEAD_BRANCH
+clean_merged() {
+  # Exclude '*', master, main, dev, then delete them
+  git branch --merged "${HEAD_BRANCH}" \
+    | egrep -v "(^\*|master|main|dev)" \
+    | xargs -r git branch -d
+}
+
+if [ "${CLEAN}" = true ]; then
+  echo "Deleting branches merged into ${HEAD_BRANCH}..."
+  clean_merged
+else
+  echo "Showing branches merged into ${HEAD_BRANCH}..."
+  show_merged
+fi
+

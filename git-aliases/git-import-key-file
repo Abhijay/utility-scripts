@@ -1,0 +1,31 @@
+#!/bin/bash
+
+# Define the file containing contributor GPG keys
+KEYS_FILE="contributor_keys"
+
+# Check if the file exists
+if [[ ! -f "$KEYS_FILE" ]]; then
+    echo "❌ Error: $KEYS_FILE not found! Run fetch_contributor_gpg_keys.sh first."
+    exit 1
+fi
+
+# Import the GPG keys
+echo "🔄 Importing contributor GPG keys..."
+gpg --import "$KEYS_FILE"
+
+# Extract imported key fingerprints
+echo "🔍 Extracting imported key fingerprints..."
+KEYS=$(gpg --list-keys --with-colons | grep '^pub' | cut -d':' -f5)
+
+# Automatically trust each imported key
+for KEY in $KEYS; do
+    echo "🔐 Trusting key: $KEY..."
+    echo -e "trust\n5\ny\nsave\n" | gpg --command-fd 0 --edit-key "$KEY"
+done
+
+# Verify trusted keys
+echo "📋 Listing trusted keys:"
+gpg --list-keys
+
+echo "✅ All contributor GPG keys have been imported and trusted!"
+

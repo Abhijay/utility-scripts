@@ -1,0 +1,62 @@
+#!/bin/bash
+
+# Detect the current GitHub repository
+REPO=$(git remote get-url origin | sed -E 's/.*github.com[:\/]([^\/]+\/[^.]+).*/\1/')
+echo "🔍 Detected repo: $REPO"
+
+# Set the personal SSH profile alias
+PERSONAL_SSH="github-abhijay"
+
+# Set personal Git credentials
+PERSONAL_NAME="Abhijay Bhatnagar"
+PERSONAL_EMAIL="git@abhijay.com"
+PERSONAL_SSH_KEY="~/.ssh/personal"
+
+# Update Git remote to use the personal SSH profile
+git remote set-url origin "$PERSONAL_SSH:$REPO"
+echo "✅ Updated remote origin to use $PERSONAL_SSH"
+
+# Set personal user info for this repo
+git config user.name "$PERSONAL_NAME"
+git config user.email "$PERSONAL_EMAIL"
+echo "✅ Set Git user to $PERSONAL_NAME <$PERSONAL_EMAIL>"
+
+# Ensure SSH uses the correct key for this repo
+git config core.sshCommand "ssh -i $PERSONAL_SSH_KEY -o IdentitiesOnly=yes"
+echo "✅ Forced SSH to use $PERSONAL_SSH_KEY"
+
+# 🔍 Run Verification Tests
+echo "🔎 Running verification tests..."
+
+# 1️⃣ Check if the remote URL is correctly set
+REMOTE_URL=$(git remote get-url origin)
+if [[ "$REMOTE_URL" == "$PERSONAL_SSH:$REPO" ]]; then
+    echo "✅ Remote origin is correctly set to: $REMOTE_URL"
+else
+    echo "❌ ERROR: Remote origin is incorrect: $REMOTE_URL"
+    exit 1
+fi
+
+# 2️⃣ Check if Git user is set correctly
+CONFIG_NAME=$(git config --get user.name)
+CONFIG_EMAIL=$(git config --get user.email)
+
+if [[ "$CONFIG_NAME" == "$PERSONAL_NAME" && "$CONFIG_EMAIL" == "$PERSONAL_EMAIL" ]]; then
+    echo "✅ Git user is correctly set to: $CONFIG_NAME <$CONFIG_EMAIL>"
+else
+    echo "❌ ERROR: Git user is incorrect: $CONFIG_NAME <$CONFIG_EMAIL>"
+    exit 1
+fi
+
+# 3️⃣ Test SSH Authentication
+SSH_TEST=$(ssh -i $PERSONAL_SSH_KEY -o IdentitiesOnly=yes -T $PERSONAL_SSH 2>&1)
+
+if echo "$SSH_TEST" | grep -q "successfully authenticated"; then
+    echo "✅ SSH authentication successful with personal account."
+else
+    echo "❌ ERROR: SSH authentication failed."
+    echo "🔎 Debugging Tip: Ensure your personal SSH key is added to GitHub."
+    exit 1
+fi
+
+echo "🎉 Successfully switched this repo to your personal GitHub account!"

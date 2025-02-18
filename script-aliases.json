@@ -2,5 +2,6 @@
   "mmr":"move-most-recent",
   "sa":"switch-all-branches",
   "cli":"run-cli",
-  "textbook": "textbook.py"
+  "textbook": "textbook.py",
+  "sd":"swap-displays"
 }
