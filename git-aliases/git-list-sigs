@@ -1,0 +1,33 @@
+#!/bin/bash
+
+# Default parent reference (main branch)
+PARENT_REF="main"
+
+# Parse arguments
+while getopts "p:" opt; do
+    case ${opt} in
+        p)
+            PARENT_REF=${OPTARG}
+            ;;
+        *)
+            echo "Usage: $0 [-p PARENT_COMMIT_OR_BRANCH]"
+            exit 1
+            ;;
+    esac
+done
+
+# Validate if the reference exists in Git
+if ! git rev-parse --verify "$PARENT_REF" >/dev/null 2>&1; then
+    echo "❌ Error: '$PARENT_REF' is not a valid commit or branch."
+    exit 1
+fi
+
+RANGE="${PARENT_REF}..HEAD"
+
+echo "Checking for unsigned or unverified commits in the current branch (from $PARENT_REF to HEAD)..."
+
+# Get the list of commits in the specified range and check if any are not signed correctly
+commits=$(git log $RANGE --pretty=format:'%H %G?')
+
+
+echo "$commits" 

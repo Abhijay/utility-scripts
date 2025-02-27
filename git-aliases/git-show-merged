@@ -1,66 +1,54 @@
 #!/usr/bin/env bash
-#
-# Usage:
-#   merged-branches.sh [-c] [-h <branch>]
-#
-# Examples:
-#   merged-branches.sh
-#       Shows branches merged into "main" (excluding main, master, dev).
-#
-#   merged-branches.sh -h develop
-#       Shows branches merged into "develop" (excluding main, master, dev).
-#
-#   merged-branches.sh -c
-#       Deletes branches merged into "main" (excluding main, master, dev).
-#
-#   merged-branches.sh -c -h develop
-#       Deletes branches merged into "develop" (excluding main, master, dev).
 
+# Ensure script exits on error
 set -euo pipefail
 
-# Default head branch:
-HEAD_BRANCH="main"
+# Default behavior: only list merged branches
 CLEAN=false
 
 # Parse options
-while getopts ":ch:" opt; do
+while getopts ":c" opt; do
   case "${opt}" in
     c)
       CLEAN=true
       ;;
-    h)
-      HEAD_BRANCH="${OPTARG}"
-      ;;
     \?)
-      echo "Usage: $0 [-c] [-h <branch>]" >&2
+      echo "Usage: $0 [-c]" >&2
       exit 1
       ;;
   esac
 done
 
-# Shift out processed options
-shift $((OPTIND - 1))
-
-# Function to show branches merged into HEAD_BRANCH
-show_merged() {
-  # Exclude '*', master, main, dev
-  git branch --merged "${HEAD_BRANCH}" \
-    | egrep -v "(^\*|master|main|dev)"
-}
-
-# Function to delete (clean) branches merged into HEAD_BRANCH
-clean_merged() {
-  # Exclude '*', master, main, dev, then delete them
-  git branch --merged "${HEAD_BRANCH}" \
-    | egrep -v "(^\*|master|main|dev)" \
-    | xargs -r git branch -d
-}
-
-if [ "${CLEAN}" = true ]; then
-  echo "Deleting branches merged into ${HEAD_BRANCH}..."
-  clean_merged
-else
-  echo "Showing branches merged into ${HEAD_BRANCH}..."
-  show_merged
+# Ensure GitHub CLI is installed
+if ! command -v gh &>/dev/null; then
+  echo "Error: GitHub CLI (gh) is not installed. Install it from https://cli.github.com/" >&2
+  exit 1
 fi
 
+# Fetch latest remote branches
+git fetch --prune origin
+
+# Get all remote branches (excluding HEAD reference)
+branches=$(git branch -r | sed 's/origin\///' | grep -v "HEAD")
+
+echo "Checking for branches with merged PRs that haven't been deleted..."
+echo ""
+
+# Loop through each branch and check PR status
+for branch in $branches; do
+  # Get PR state (if it exists)
+  pr_status=$(gh pr list --state merged --head "$branch" --json state --jq '.[].state' 2>/dev/null || echo "")
+
+  # If a PR exists and is merged but the branch still exists in remote
+  if [[ "$pr_status" == "MERGED" ]]; then
+    if [ "$CLEAN" = true ]; then
+      echo "Deleting merged branch: $branch"
+      git push origin --delete "$branch" --no-verify
+    else
+      echo "Branch '$branch' has a merged PR but hasn't been deleted."
+    fi
+  fi
+done
+
+echo ""
+echo "Done."
