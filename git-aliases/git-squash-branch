@@ -1,0 +1,88 @@
+#!/bin/bash
+
+set -e
+
+# Function to display usage
+usage() {
+    echo -e "\033[1;34mUsage:\033[0m $0 [-p <parent_branch>]"
+    exit 1
+}
+
+# Parse command line arguments
+while getopts ":p:" opt; do
+    case ${opt} in
+        p )
+            PARENT_BRANCH=$OPTARG
+            ;;
+        \? )
+            usage
+            ;;
+    esac
+done
+
+# Ensure git is installed
+if ! command -v git &> /dev/null; then
+    echo -e "\033[1;31m❌ Error:\033[0m git is not installed."
+    exit 1
+fi
+
+# Ensure working directory is clean
+if ! git diff --quiet || ! git diff --staged --quiet; then
+    echo -e "\033[1;31m❌ Error:\033[0m Uncommitted changes detected. Please commit or stash before proceeding."
+    exit 1
+fi
+
+# Get current branch
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+# Find the first true parent branch if not provided
+if [ -z "$PARENT_BRANCH" ]; then
+    PARENT_BRANCH=$(
+    git branch --sort=-committerdate --format='%(refname:short)' \
+    | grep -v "$(git rev-parse --abbrev-ref HEAD)" \
+    | while read branch; do 
+        if [ "$(git rev-parse $branch)" != "$(git rev-parse HEAD)" ] \
+           && git merge-base --is-ancestor "$branch" "$CURRENT_BRANCH"; then
+            echo "$branch"
+            break
+        fi
+    done
+)
+    
+    if [ -z "$PARENT_BRANCH" ]; then
+        echo -e "\033[1;31m❌ Error:\033[0m Could not determine a true parent branch automatically. Please specify it with -p."
+        exit 1
+    fi
+    echo -e "\n\033[1;32m✅ Detected parent branch:\033[0m \033[1;36m$PARENT_BRANCH\033[0m\n"
+fi
+
+if [ "$CURRENT_BRANCH" == "$PARENT_BRANCH" ]; then
+    echo -e "\033[1;31m❌ Error:\033[0m Already on the parent branch. Please switch to a feature branch before squashing."
+    exit 1
+fi
+
+# Ensure parent branch exists
+if ! git rev-parse --verify "$PARENT_BRANCH" &> /dev/null; then
+    echo -e "\033[1;31m❌ Error:\033[0m Parent branch '\033[1;36m$PARENT_BRANCH\033[0m' does not exist."
+    exit 1
+fi
+
+# Ensure feature branch is based on the parent branch
+if ! git merge-base --is-ancestor "$PARENT_BRANCH" "$CURRENT_BRANCH"; then
+    echo -e "\033[1;31m❌ Error:\033[0m The current branch is not based on '\033[1;36m$PARENT_BRANCH\033[0m'. Rebase or merge before squashing."
+    exit 1
+fi
+
+# Get commit messages for all commits to be squashed
+MERGE_BASE=$(git merge-base "$PARENT_BRANCH" "$CURRENT_BRANCH")
+COMMIT_MESSAGES=$(git log --format="%h %s" "$MERGE_BASE"..HEAD)
+
+# Squash commits
+echo -e "\033[1;33m🔨 Squashing all commits from \033[1;36m$CURRENT_BRANCH\033[1;33m into a single commit on \033[1;36m$PARENT_BRANCH\033[0m..."
+
+git reset --soft "$MERGE_BASE"
+
+# Create the new commit with all commit messages included
+echo -e "Squashed commits from $CURRENT_BRANCH:\n\n$COMMIT_MESSAGES" | git commit -q -F -
+
+echo -e "\n\033[1;32m✅ Squashed commits from $CURRENT_BRANCH:\033[0m\n\n$COMMIT_MESSAGES"
