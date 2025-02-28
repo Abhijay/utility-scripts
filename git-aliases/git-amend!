@@ -1,0 +1,25 @@
+#!/bin/bash
+
+# Stage all changes, including untracked files
+git add -A
+
+# Amend the last commit quietly
+if git commit -a --no-edit --amend -q; then
+    echo "✔ Commit amended successfully."
+else
+    echo "❌ Commit failed. Check for issues."
+    exit 1
+fi
+
+# Confirmation prompt before force pushing
+read -p "Force push? (y/N) " confirm
+if [[ "$confirm" =~ ^[Yy]$ ]]; then
+    if git push -f --no-verify; then
+        echo "🚀 Force push completed successfully."
+    else
+        echo "❌ Push failed. Check for errors."
+        exit 1
+    fi
+else
+    echo "⏳ Push aborted."
+fi
