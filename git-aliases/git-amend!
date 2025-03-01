@@ -4,7 +4,7 @@
 git add -A
 
 # Amend the last commit quietly
-if git commit -a --no-edit --amend -q; then
+if git commit -a --no-edit --amend -q --no-verify; then
     echo "✔ Commit amended successfully."
 else
     echo "❌ Commit failed. Check for issues."

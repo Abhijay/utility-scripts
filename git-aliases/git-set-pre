@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+#
+# Usage: git set-pre <on|off>
+# Moves .git/hooks/pre-* to *.bak (off), or restores them (on).
+# Skips any files ending in .sample.
+
+set -e
+
+ACTION="$1"
+
+if [[ -z "$ACTION" ]]; then
+  echo "Usage: git set-pre <on|off>"
+  exit 1
+fi
+
+if [[ "$ACTION" == "off" ]]; then
+  echo "Disabling pre-* hooks (ignoring .sample files)..."
+  for hook in .git/hooks/pre-*; do
+    # If there's no file matching the glob, $hook will be the literal ".git/hooks/pre-*"
+    # So we also check that it's a regular file.
+    if [[ -f "$hook" ]]; then
+      # Skip if it's already a .bak file or if it ends with .sample
+      if [[ "$hook" == *.bak || "$hook" == *.sample ]]; then
+        continue
+      fi
+      mv "$hook" "$hook.bak"
+      echo "Renamed: $hook -> $hook.bak"
+    fi
+  done
+  echo "Pre-* hooks disabled."
+elif [[ "$ACTION" == "on" ]]; then
+  echo "Enabling pre-* hooks (ignoring .sample files)..."
+  for bak_file in .git/hooks/pre-*.bak; do
+    if [[ -f "$bak_file" ]]; then
+      # Skip if it's a .sample.bak
+      if [[ "$bak_file" == *.sample.bak ]]; then
+        continue
+      fi
+      orig_file="${bak_file%.bak}"
+      mv "$bak_file" "$orig_file"
+      echo "Renamed: $bak_file -> $orig_file"
+    fi
+  done
+  echo "Pre-* hooks enabled."
+else
+  echo "Usage: git set-pre <on|off>"
+  exit 1
+fi
