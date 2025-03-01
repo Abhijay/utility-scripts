@@ -1,0 +1,38 @@
+#!/bin/bash
+
+# Git set-hints alias script
+
+set_hints() {
+  local state="$1"
+
+  if [[ "$state" != "on" && "$state" != "off" ]]; then
+    echo "Usage: git set-hints [on | off]"
+    exit 1
+  fi
+
+  local value
+  if [[ "$state" == "on" ]]; then
+    value="true"
+    echo "Git hints have been enabled."
+  else
+    value="false"
+    echo "Git hints have been disabled."
+  fi
+
+  git config --global advice.pushUpdateRejected "$value"
+  git config --global advice.pushNonFFCurrent "$value"
+  git config --global advice.pushNonFFMatching "$value"
+  git config --global advice.pushAlreadyExists "$value"
+  git config --global advice.pushFetchFirst "$value"
+  git config --global advice.pushNeedsForce "$value"
+  git config --global advice.statusHints "$value"
+  git config --global advice.statusUoption "$value"
+  git config --global advice.commitBeforeMerge "$value"
+  git config --global advice.resolveConflict "$value"
+  git config --global advice.implicitIdentity "$value"
+  git config --global advice.detachedHead "$value"
+  git config --global advice.amWorkDir "$value"
+  git config --global advice.rmHints "$value"
+}
+
+set_hints "$1"

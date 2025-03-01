@@ -1,0 +1,103 @@
+#!/bin/bash
+
+# Default to checking all diffs
+DIFF_OPTION="--all"
+FILE_ONLY=false
+
+# Define regex for console.log and debugger detection
+LOG_DEBUGGER_REGEX='(console\.log|debugger)'
+
+# Parse flags
+while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+        -s|--staged) DIFF_OPTION="--staged"; shift ;;
+        -u|--unstaged) DIFF_OPTION="--unstaged"; shift ;;
+        -a|--all) DIFF_OPTION="--all"; shift ;;
+        -f|--file-only) FILE_ONLY=true; shift ;;
+        *) echo "Unknown option: $1"; exit 1 ;;
+    esac
+done
+
+# Determine git diff command based on option
+case "$DIFF_OPTION" in
+    "--staged") GIT_DIFF_CMD="git diff --cached --unified=0";;
+    "--unstaged") GIT_DIFF_CMD="git diff --unified=0";;
+    "--all") GIT_DIFF_CMD="git diff HEAD --unified=0";;
+esac
+
+# Define colors correctly for compatibility
+GREEN="\033[32m"
+RED="\033[31m"
+YELLOW="\033[33m"
+RESET="\033[0m"
+
+# Search for newly added console.log or debugger statements
+echo -e "\n🔍 Checking for ${RED}console.log${RESET} or ${RED}debugger${RESET} statements in $DIFF_OPTION changes...\n"
+
+# Include untracked files in unstaged and all options
+if [[ "$DIFF_OPTION" == "--unstaged" || "$DIFF_OPTION" == "--all" ]]; then
+    UNTRACKED_FILES=$(git ls-files --others --exclude-standard)
+    for file in $UNTRACKED_FILES; do
+        MATCHES=$(grep -nE "$LOG_DEBUGGER_REGEX" "$file" 2>/dev/null)
+        if [[ ! -z "$MATCHES" ]]; then
+            echo -e "${RED}File: $file${RESET}"  # Print filename in red
+            if ! $FILE_ONLY; then
+                echo "$MATCHES" | while IFS=: read -r line_num code; do
+                    echo -e "${YELLOW}$file:$line_num:${RESET}"
+                    echo -e "  $code"
+                done
+                echo ""
+            fi
+        fi
+    done
+fi
+
+# Extract file names and matching lines in one pass to speed up line number detection
+FILES_WITH_ISSUES=$(
+  $GIT_DIFF_CMD --diff-filter=ACMRTUXB | \
+  awk -v regex="$LOG_DEBUGGER_REGEX" -v file_only="$FILE_ONLY" -v red="$RED" -v yellow="$YELLOW" -v reset="$RESET" '
+    BEGIN {
+      file = "";
+      lineOffset = 0;
+    }
+
+    # Detect when we enter a new file
+    /^diff --git a\// {
+      file = $3;
+      sub("^a/", "", file);
+      sub("^b/", "", file);
+      lineOffset = 0;
+    }
+
+    # Handle the hunk line: @@ -old +new @@
+    /^@@/ {
+      split($3, chunk, ",");
+      sub(/^\+/, "", chunk[1]);
+      lineOffset = chunk[1];
+    }
+
+    # Lines that start with + are newly added lines.
+    /^\+/ {
+      cleanLine = substr($0, 2);
+      if (cleanLine ~ regex) {
+        printf("%sFile: %s%s\n", red, file, reset);
+        if (file_only == "false") {
+          printf("%s%s:%d:%s\n", yellow, file, lineOffset, reset);
+          printf("  %s%s%s\n", reset, cleanLine, reset);
+          printf("\n");
+        }
+      }
+      lineOffset++;
+    }
+  '
+)
+
+if [[ -z "$FILES_WITH_ISSUES" ]]; then
+    echo -e "${GREEN}✅ No console.log or debugger found.${RESET}"
+else
+    echo -e "$FILES_WITH_ISSUES"
+    echo -e "\n❌ Found ${RED}developer${RESET} statements. Please remove them before committing.${RESET}"
+    exit 1
+fi
+
+exit 0
