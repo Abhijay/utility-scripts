@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+
+# ------------------------------------------------------------------
+# get_default_parent_branch
+# ------------------------------------------------------------------
+# Usage:
+#   source get_default_parent_branch.sh
+#   PARENT_BRANCH="$(get_default_parent_branch "$CURRENT_BRANCH")"
+#
+# Description:
+#   This function always attempts to determine a "true" parent branch by
+#   looking for the most recent branch in git history that is an ancestor
+#   of the current branch.
+#
+#   If successful, it prints the name of the detected parent branch.
+#   If it cannot find any suitable parent, it prints an error message
+#   and returns non-zero to signal failure.
+# ------------------------------------------------------------------
+
+get_default_parent_branch() {
+  local current_branch="$1"
+
+  # Attempt to detect the default parent branch for the current branch
+  local parent_branch
+  parent_branch=$(
+    git branch --sort=-committerdate --format='%(refname:short)' \
+    | grep -v "$current_branch" \
+    | while read -r branch; do
+        # Ensure it's not the same commit and it's an ancestor of $current_branch
+        if [ "$(git rev-parse "$branch")" != "$(git rev-parse HEAD)" ] \
+           && git merge-base --is-ancestor "$branch" "$current_branch"; then
+          echo "$branch"
+          break
+        fi
+      done
+  )
+
+  if [ -z "$parent_branch" ]; then
+    echo -e "\033[1;31m❌ Error:\033[0m Could not determine a true parent branch automatically." >&2
+    return 1
+  fi
+
+  # Print the determined parent branch
+  echo "$parent_branch"
+  return 0
+}
+
+# ------------------------------------------------------------------
+# If the script is invoked directly rather than sourced, run the function
+# ------------------------------------------------------------------
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  set -e  # Exit on error (optional, but recommended for a script)
+  
+  # Get the current branch
+  CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+  
+  # If git is not installed or not in a repository, CURRENT_BRANCH might be empty.
+  if [ -z "$CURRENT_BRANCH" ]; then
+    echo -e "\033[1;31m❌ Error:\033[0m Not a valid Git repository or git not installed."
+    exit 1
+  fi
+
+  # Determine the default parent branch
+  PARENT_BRANCH="$(get_default_parent_branch "$CURRENT_BRANCH")" || exit 1
+
+  # Print the result
+  echo "Detected parent branch: $PARENT_BRANCH"
+fi

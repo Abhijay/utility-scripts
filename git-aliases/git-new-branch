@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# git new-branch script
+#
+# Usage:
+#   git new-branch <name> [--diff | -d] [--remote | -r]
+#
+# This script:
+#   - Calls `git branches -s` with optional `-d` or `-r` flags
+#   - Switches to the selected base branch
+#   - Creates a new branch with `git checkout -B <name>`
+
+set -euo pipefail
+
+if [ $# -lt 1 ]; then
+  echo "Usage: git new-branch <name> [--diff | -d] [--remote | -r]"
+  exit 1
+fi
+
+NEW_BRANCH_NAME="$1"
+shift # Remove the branch name from arguments, leaving only flags
+
+# Ensure fzf is installed
+if ! command -v fzf &>/dev/null; then
+  echo "Error: 'fzf' is not installed. Please install fzf to use this script." >&2
+  exit 1
+fi
+
+# Call `git branches -s` to switch to the selected branch
+git branches -s "$@"
+
+# Get the current branch as the base branch
+BASE_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+if [ -z "$BASE_BRANCH" ]; then
+  echo "Failed to determine base branch."
+  exit 1
+fi
+
+echo "Creating new branch '$NEW_BRANCH_NAME' from '$BASE_BRANCH'..."
+git checkout -B "$NEW_BRANCH_NAME"

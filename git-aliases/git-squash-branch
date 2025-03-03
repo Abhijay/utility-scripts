@@ -83,6 +83,6 @@ echo -e "\033[1;33m🔨 Squashing all commits from \033[1;36m$CURRENT_BRANCH\033
 git reset --soft "$MERGE_BASE"
 
 # Create the new commit with all commit messages included
-echo -e "Squashed commits from $CURRENT_BRANCH:\n\n$COMMIT_MESSAGES" | git commit -q -F -
+echo -e "Squashed commits from $CURRENT_BRANCH:\n\n$COMMIT_MESSAGES" | git commit -q --no-verify -F -
 
 echo -e "\n\033[1;32m✅ Squashed commits from $CURRENT_BRANCH:\033[0m\n\n$COMMIT_MESSAGES"

@@ -1,0 +1,224 @@
+#!/usr/bin/env bash
+# Combined git-branch-listing script
+#
+# Flags:
+#   -d, --diff    Show local branches with ahead/behind info.
+#       By default, shows color in console (2 fields only).
+#       If combined with --switch, uses a no-color diff listing (3 fields).
+#   -r, --remote  Show remote branches (no color/diff)
+#   -s, --switch  After printing, pipe a reversed listing into fzf, then git checkout the selection
+#       (No console output is printed if --switch is set)
+#
+#  - If a branch has no remote => red
+#  - If a branch has remote but no diffs => green
+#  - If a branch has remote + diffs => yellow
+#
+# Examples:
+#   ./git-list-branches.sh
+#   ./git-list-branches.sh --diff
+#   ./git-list-branches.sh --remote
+#   ./git-list-branches.sh --switch
+#   ./git-list-branches.sh -d -s
+
+set -euo pipefail
+
+SHOW_DIFF=false
+SHOW_REMOTE=false
+SHOW_SWITCH=false
+
+# --------- Parse flags ---------
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -d|--diff)
+      SHOW_DIFF=true
+      shift
+      ;;
+    -r|--remote)
+      SHOW_REMOTE=true
+      shift
+      ;;
+    -s|--switch)
+      SHOW_SWITCH=true
+      shift
+      ;;
+    *)
+      echo "Unknown option: $1"
+      echo "Usage: $0 [--diff | -d] [--remote | -r] [--switch | -s]"
+      exit 1
+      ;;
+  esac
+done
+
+# If we plan to switch, ensure fzf is installed
+if [ "$SHOW_SWITCH" = true ]; then
+  if ! command -v fzf &>/dev/null; then
+    echo "Error: 'fzf' is not installed. Please install fzf to use --switch mode." >&2
+    exit 1
+  fi
+fi
+
+# ---------- Color Codes ----------
+RED="\033[31m"
+GREEN="\033[32m"
+YELLOW="\033[33m"
+RESET="\033[0m"
+
+# =================================================================
+# 1) LISTING FUNCTIONS (Tab-Spaced)
+# =================================================================
+
+# local (no diff, tab-spaced, no color)
+list_local_branches_simple_nocolor() {
+  git for-each-ref --sort='authordate:iso8601' \
+    --format='%(authordate:relative)%09%(refname:short)' refs/heads
+}
+
+# remote (no diff, tab-spaced, no color)
+list_remote_branches_simple_nocolor() {
+  git for-each-ref --sort='authordate:iso8601' \
+    --format='%(authordate:relative)%09%(refname:short)' refs/remotes/origin \
+    | grep -v 'HEAD'
+}
+
+##################################################
+# local diff + color (2 fields)
+#   - no remote => red
+#   - has remote, no diffs => green
+#   - has remote, diffs => yellow
+##################################################
+list_local_branches_diff_color_2fields() {
+  local output=""
+  while IFS= read -r line; do
+    local commit_age
+    local short_name
+    commit_age="$(awk -F '\t' '{print $1}' <<<"$line")"
+    short_name="$(awk -F '\t' '{print $2}' <<<"$line")"
+
+    # how many commits ahead/behind
+    local ahead behind
+    ahead="$(git rev-list --count "$short_name"..origin/"$short_name" 2>/dev/null || echo 0)"
+    behind="$(git rev-list --count origin/"$short_name".."$short_name" 2>/dev/null || echo 0)"
+
+    # does this branch have a remote?
+    local remote_config
+    remote_config="$(git config --get "branch.$short_name.remote" 2>/dev/null || echo "")"
+
+    # decide color
+    local branch_color
+    if [[ -z "$remote_config" ]]; then
+      # no remote => red
+      branch_color="${RED}${short_name}${RESET}"
+    else
+      if [[ "$ahead" -eq 0 && "$behind" -eq 0 ]]; then
+        branch_color="${GREEN}${short_name}${RESET}"  # remote + no diffs => green
+      else
+        branch_color="${YELLOW}${short_name}${RESET}" # remote + diffs => yellow
+      fi
+    fi
+
+    if [[ "$ahead" -gt 0 || "$behind" -gt 0 ]]; then
+      local diffs="[${GREEN}${ahead}↟${RESET}, ${RED}${behind}↡${RESET}]"
+      output+="$commit_age\t$branch_color $diffs\n"
+    else
+      output+="$commit_age\t$branch_color\n"
+    fi
+  done < <(list_local_branches_simple_nocolor)
+
+  echo -e "$output"
+}
+
+##################################################
+# local diff + no color
+#   => can produce 2 or 3 fields
+#   => no special highlight for no-remote or no-diffs
+#      because user said color highlighting is only for color mode
+##################################################
+list_local_branches_diff_nocolor() {
+  local output=""
+  while IFS= read -r line; do
+    local commit_age="$(awk -F '	' '{print $1}' <<<"$line")"
+    local short_name="$(awk -F '	' '{print $2}' <<<"$line")"
+
+    local ahead behind
+    ahead="$(git rev-list --count "$short_name"..origin/"$short_name" 2>/dev/null || echo 0)"
+    behind="$(git rev-list --count origin/"$short_name".."$short_name" 2>/dev/null || echo 0)"
+
+    # Right-pad branch name to 30 characters for alignment
+    local padded_branch="$(printf '%-30s' "$short_name")"
+
+    if [[ "$ahead" -gt 0 || "$behind" -gt 0 ]]; then
+      # Always produce 3 columns, ensuring alignment
+      output+="$commit_age	$padded_branch	[${ahead}↟,${behind}↡]
+"
+    else
+      # 3 columns: third is empty
+      output+="$commit_age	$padded_branch	
+"
+    fi
+  done < <(list_local_branches_simple_nocolor)
+
+  echo -e "$output"
+}
+
+
+# =================================================================
+# 2) DETERMINE WHICH LISTING TO SHOW IN CONSOLE
+# =================================================================
+CONSOLE_OUTPUT=""
+
+if [ "$SHOW_REMOTE" = true ] && [ "$SHOW_DIFF" = true ]; then
+  echo "Error: cannot use both --remote and --diff together." >&2
+  exit 1
+elif [ "$SHOW_REMOTE" = true ]; then
+  # Simple remote listing, tab-spaced, no color
+  CONSOLE_OUTPUT="$(list_remote_branches_simple_nocolor)"
+elif [ "$SHOW_DIFF" = true ]; then
+  if [ "$SHOW_SWITCH" = true ]; then
+    # If user wants both diff and switch, show no-color diff w/ extra tab
+    CONSOLE_OUTPUT="$(list_local_branches_diff_nocolor true)"
+  else
+    # Otherwise, show color diff, 2 fields
+    CONSOLE_OUTPUT="$(list_local_branches_diff_color_2fields)"
+  fi
+else
+  # Local simple listing, tab-spaced, no color
+  CONSOLE_OUTPUT="$(list_local_branches_simple_nocolor)"
+fi
+
+# =================================================================
+# 3) PRINT CONSOLE OUTPUT (only if we're NOT switching)
+# =================================================================
+if [ "$SHOW_SWITCH" = false ]; then
+  echo "------------------------------------------------------------"
+  echo -e "$CONSOLE_OUTPUT"
+  echo "------------------------------------------------------------"
+fi
+
+# =================================================================
+# 4) If --switch, pipe a reversed listing to fzf, then checkout
+# =================================================================
+if [ "$SHOW_SWITCH" = true ]; then
+  FZF_INPUT="$CONSOLE_OUTPUT"
+
+  safe_reverse() {
+    if command -v tac &>/dev/null; then
+      tac
+    else
+      tail -r
+    fi
+  }
+
+  selected_line=$(echo -e "$FZF_INPUT" | safe_reverse | fzf || true)
+  if [ -n "$selected_line" ]; then
+    # If there's a third field, parse #2 for the branch name
+    branch_name=$(awk -F '\t' '{print $2}' <<<"$selected_line")
+    if [ -n "$branch_name" ]; then
+      echo "Checking out branch: $branch_name"
+      git checkout "$(echo "$branch_name" | xargs)"
+    else
+      echo "Could not parse branch name from: $selected_line"
+    fi
+  else
+    echo "No branch selected."
+  fi
+fi

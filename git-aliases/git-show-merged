@@ -3,17 +3,28 @@
 # Ensure script exits on error
 set -euo pipefail
 
-# Default behavior: only list merged branches
-CLEAN=false
+# Define color variables
+RED="\033[31m"
+YELLOW="\033[33m"
+RESET="\033[0m"
+
+CLEAN_LOCAL=false
+CLEAN_REMOTE=false
 
 # Parse options
-while getopts ":c" opt; do
-  case "${opt}" in
-    c)
-      CLEAN=true
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    -c|--clean-local)
+      CLEAN_LOCAL=true
+      shift
       ;;
-    \?)
-      echo "Usage: $0 [-c]" >&2
+    -r|--clean-remote)
+      CLEAN_REMOTE=true
+      shift
+      ;;
+    *)
+      echo "Unknown option: $1"
+      echo "Usage: $0 [--clean-local | -c] [--clean-remote | -r]"
       exit 1
       ;;
   esac
@@ -28,27 +39,79 @@ fi
 # Fetch latest remote branches
 git fetch --prune origin
 
-# Get all remote branches (excluding HEAD reference)
-branches=$(git branch -r | sed 's/origin\///' | grep -v "HEAD")
+# For remote checks, we list remote branches (excluding HEAD)
+remote_branches=$(git branch -r | sed 's|origin/||' | grep -v 'HEAD')
 
-echo "Checking for branches with merged PRs that haven't been deleted..."
+# For local checks, we list local branches
+local_branches=$(git branch --list --format='%(refname:short)')
+
+# Function to determine if a branch has a merged PR
+has_merged_pr() {
+  local branch_name="$1"
+  local pr_status
+  pr_status=$(gh pr list --state merged --head "$branch_name" --json state --jq '.[].state' 2>/dev/null || echo "")
+  [[ "$pr_status" == "MERGED" ]]
+}
+
+echo "Checking for branches with merged PRs..."
 echo ""
 
-# Loop through each branch and check PR status
-for branch in $branches; do
-  # Get PR state (if it exists)
-  pr_status=$(gh pr list --state merged --head "$branch" --json state --jq '.[].state' 2>/dev/null || echo "")
+# 1) If cleaning local, only check local branches
+if [[ "$CLEAN_LOCAL" == true ]]; then
+  for branch in $local_branches; do
 
-  # If a PR exists and is merged but the branch still exists in remote
-  if [[ "$pr_status" == "MERGED" ]]; then
-    if [ "$CLEAN" = true ]; then
-      echo "Deleting merged branch: $branch"
-      git push origin --delete "$branch" --no-verify
-    else
-      echo "Branch '$branch' has a merged PR but hasn't been deleted."
+    # Skip branches that contain dev, main, master, or staging
+    if [[ "$branch" =~ (dev|main|master|staging) ]]; then
+      continue
     fi
-  fi
-done
+
+    if has_merged_pr "$branch"; then
+      echo -e "${RED}Deleting merged branch locally:${RESET} ${YELLOW}$branch${RESET}"
+
+      # Always use force-delete (-D) for merged branches
+      if ! git branch -D "$branch" 2>/dev/null; then
+        # If force-delete failed, print config info
+        upstream_merge=$(git config --get "branch.$branch.merge" 2>/dev/null || echo "")
+        if [[ -n "$upstream_merge" ]]; then
+          echo "Branch '$branch' is set to merge with: $upstream_merge"
+        fi
+
+        echo -e "  Could not force delete branch '${YELLOW}$branch${RESET}'. Please remove manually."
+      fi
+    fi
+  done
+fi
+
+# 2) If cleaning remote, only check remote branches
+if [[ "$CLEAN_REMOTE" == true ]]; then
+  for branch in $remote_branches; do
+
+    # Skip branches that contain dev, main, master, or staging
+    if [[ "$branch" =~ (dev|main|master|staging) ]]; then
+      continue
+    fi
+
+    if has_merged_pr "$branch"; then
+      echo -e "${RED}Deleting merged branch from origin:${RESET} ${YELLOW}$branch${RESET}"
+      git push origin --delete "$branch" --no-verify
+    fi
+  done
+fi
+
+# 3) If neither flag is passed, list remote merged branches that remain
+if [[ "$CLEAN_LOCAL" == false && "$CLEAN_REMOTE" == false ]]; then
+  for branch in $remote_branches; do
+
+    # Skip branches that contain dev, main, master, or staging
+    if [[ "$branch" =~ (dev|main|master|staging) ]]; then
+      continue
+    fi
+
+    if has_merged_pr "$branch"; then
+      echo -e "Branch '${YELLOW}$branch${RESET}' has a merged PR but hasn't been deleted. (Use -c or -r to delete.)"
+    fi
+  done
+fi
 
 echo ""
 echo "Done."

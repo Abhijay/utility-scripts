@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+#
+# A script to quickly set up pre-commit and git-branchless in the current repo.
+
+set -e  # Exit on error
+
+# ANSI color codes
+YELLOW="\033[33m"
+RESET="\033[0m"
+
+echo -e "${YELLOW}==> Installing pre-commit with global config...${RESET}"
+pre-commit install --config ~/.config/pre-commit/.pre-commit-config.yaml
+
+echo  # Empty line
+
+echo -e "${YELLOW}==> Initializing git-branchless...${RESET}"
+git branchless init
+
+echo -e "${YELLOW}==> Done.${RESET}"
