@@ -1,1 +1,1 @@
-git push 2>&1 | grep git | head -n 1
+$(git push 2>&1 | grep git | head -n 1)
