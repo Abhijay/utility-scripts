@@ -110,5 +110,12 @@ echo "=== Generated PR Report ==="
 echo "$pr_report"
 echo "==========================="
 
-# Create the PR using `gh pr create` with the generated report
-gh pr create --body "$pr_report"
+# Generate the PR title using the LLM based on the PR report
+if ! pr_title=$(echo "$pr_report" | llm -s "$(cat ../prompts/pr-title-prompt.txt)" 2>&1); then
+  echo "Error: 'llm' command failed to generate the PR title:"
+  echo "$pr_title"
+  exit 1
+fi
+
+# Create the PR using `gh pr create` with the generated title and report
+gh pr create --title "$pr_title" --body "$pr_report"

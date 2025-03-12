@@ -1,0 +1,7 @@
+# Generate a concise and descriptive PR title following Angular commit message conventions.
+# The title should be in the format: <type>(<scope>): <subject>
+# Where:
+# - <type> is a noun, such as "fix", "feat", "docs", "style", "refactor", "test", or "chore".
+# - <scope> is a noun describing a section of the codebase (optional).
+# - <subject> is a short description of the change, written in the imperative mood.
+# Use the provided PR description to infer the type, scope, and subject.
