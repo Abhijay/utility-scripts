@@ -10,6 +10,8 @@ RESET="\033[0m"
 
 echo -e "${YELLOW}==> Installing pre-commit with global config...${RESET}"
 pre-commit install --config ~/.config/pre-commit/.pre-commit-config.yaml
+cp ~/.git-hooks/pre-push .git/hooks/pre-push
+cp ~/.git-hooks/prepare-commit-msg .git/hooks/prepare-commit-msg
 
 echo  # Empty line
 

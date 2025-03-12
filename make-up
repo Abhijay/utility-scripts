@@ -1,0 +1,19 @@
+#!/bin/bash
+
+# Run make up and capture the output
+output=$(make up 2>&1)
+
+# Check if the output contains the specific error message
+if echo "$output" | grep -q "Error response from daemon: Conflict. The container name \"/backend\" is already in use"; then
+    # Extract the container ID from the error message
+    container_id=$(echo "$output" | grep -o '"[^"]\+"' | head -n 1 | tr -d '"')
+
+    # Remove the conflicting container
+    docker rm "$container_id"
+
+    # Rerun make up
+    make up
+else
+    # Print the output if no error occurred
+    echo "$output"
+fi

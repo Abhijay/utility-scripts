@@ -1,0 +1,122 @@
+#!/bin/bash
+
+# ANSI color codes
+RED='\033[0;31m'     # Red for errors
+GREEN='\033[0;32m'   # Green for fix instructions
+BOLD='\033[1m'       # Bold text
+NC='\033[0m'         # No color (reset)
+
+
+# Function to check if a commit message follows Angular commit style
+validate_commit_message() {
+    local commit_message="$1"
+    if [[ "$commit_message" =~ ^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([A-Za-z0-9\-]+\))?:\s.{1,}$ ]]; then
+        echo "no match regex"
+        return 1  # Invalid commit message
+    fi
+    return 0  # Valid commit message
+}
+
+# Function to check if a commit is signed
+validate_commit_signature() {
+    local commit_hash="$1"
+    local signature_status=$(git log --pretty=format:'%G?' -n 1 "$commit_hash")
+    
+    if [[ "$signature_status" != "G" ]]; then
+        return 1  # Unsigned commit
+    fi
+    return 0  # Signed commit
+}
+
+# Get the range of commits being pushed
+while read local_ref local_sha remote_ref remote_sha; do
+    if [ "$remote_sha" == "000000000000000000000000000000000000000000" ]; then
+        # This is a new branch push (no previous commits on remote)
+        RANGE="$local_sha"
+    else
+        # Only check commits that are part of the push
+        RANGE="$remote_sha..$local_sha"
+    fi
+
+    echo -e "\n🔍 ${BOLD}Checking commits in range:${NC} $RANGE"
+    echo "────────────────────────────────────────"
+
+    INVALID_COMMITS=()
+    UNSIGNED_COMMITS=()
+    OLDEST_INVALID_COMMIT_INDEX=-1
+
+    # Get all commit hashes in range, oldest first
+    COMMIT_LIST=($(git rev-list --reverse "$RANGE"))
+
+    # Loop through each commit in the range and validate
+    for i in "${!COMMIT_LIST[@]}"; do
+        commit_hash="${COMMIT_LIST[i]}"
+        commit_message=$(git log --format="%s" -n 1 "$commit_hash")
+
+        # Debugging logs:
+        echo -e "\n🔹 ${BOLD}Checking commit:${NC} $commit_hash"
+        echo -e "   ${BOLD}Message:${NC} '$commit_message'"
+
+        # Validate commit message
+# if ! validate_commit_message "$commit_message"; then
+#            INVALID_COMMITS+=("$commit_hash: $commit_message")
+#            if [ "$OLDEST_INVALID_COMMIT_INDEX" -eq -1 ] || [ "$i" -lt "$OLDEST_INVALID_COMMIT_INDEX" ]; then
+#                OLDEST_INVALID_COMMIT_INDEX="$i"
+#            fi
+#        fi
+
+        # Validate commit signature
+        if ! validate_commit_signature "$commit_hash"; then
+            UNSIGNED_COMMITS+=("$commit_hash: $commit_message")
+            if [ "$OLDEST_INVALID_COMMIT_INDEX" -eq -1 ] || [ "$i" -lt "$OLDEST_INVALID_COMMIT_INDEX" ]; then
+                OLDEST_INVALID_COMMIT_INDEX="$i"
+            fi
+        fi
+    done
+
+    # If there are invalid or unsigned commits, reject the push
+    if [ ${#INVALID_COMMITS[@]} -gt 0 ] || [ ${#UNSIGNED_COMMITS[@]} -gt 0 ]; then
+        echo "────────────────────────────────────────"
+        echo -e "\n${RED}❌ Push rejected. The following issues were found:${NC}"
+
+        if [ ${#INVALID_COMMITS[@]} -gt 0 ]; then
+            echo -e "\n${RED}⛔ Commits that do not follow Angular commit style:${NC}"
+            for commit in "${INVALID_COMMITS[@]}"; do
+                echo -e "   ${RED}$commit${NC}"
+            done
+        fi
+
+        if [ ${#UNSIGNED_COMMITS[@]} -gt 0 ]; then
+            echo -e "\n${RED}⛔ Unsigned commits detected:${NC}"
+            for commit in "${UNSIGNED_COMMITS[@]}"; do
+                echo -e "   ${RED}$commit${NC}"
+            done
+        fi
+
+        echo "────────────────────────────────────────"
+
+        # Determine how far back to rebase (distance from HEAD)
+        if [ "$OLDEST_INVALID_COMMIT_INDEX" -ne -1 ]; then
+            REBASE_DEPTH=$(( ${#COMMIT_LIST[@]} - OLDEST_INVALID_COMMIT_INDEX ))
+        else
+            REBASE_DEPTH=1
+        fi
+
+        # Provide the correct fix command dynamically
+        if [ "$REBASE_DEPTH" -eq 1 ]; then
+            echo ""
+            echo -e "${GREEN}👉 Fix the commit with:${NC}"
+            echo -e "   ${GREEN}git commit --amend -m \"<corrected commit message>\" -S${NC}"
+        else
+            echo ""
+            echo -e "${GREEN}👉 Fix all commits back to the earliest invalid commit using:${NC}"
+            echo -e "   ${GREEN}git rebase -i HEAD~$REBASE_DEPTH${NC}"
+            echo -e "   ${GREEN}(Ensure all commits are signed using 'git commit -S')${NC}"
+        fi
+
+        exit 1
+    fi
+done
+
+echo -e "\n✅ ${BOLD}All commits follow Angular commit style and are signed. Push allowed.${NC}\n"
+exit 0

@@ -7,6 +7,9 @@ FILE_ONLY=false
 # Define regex for console.log and debugger detection
 LOG_DEBUGGER_REGEX='(console\.log|debugger)'
 
+# Initialize no-color flag
+NO_COLOR=false
+
 # Parse flags
 while [[ "$#" -gt 0 ]]; do
     case "$1" in
@@ -14,6 +17,7 @@ while [[ "$#" -gt 0 ]]; do
         -u|--unstaged) DIFF_OPTION="--unstaged"; shift ;;
         -a|--all) DIFF_OPTION="--all"; shift ;;
         -f|--file-only) FILE_ONLY=true; shift ;;
+        -n|--no-color) NO_COLOR=true; shift ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
 done
@@ -25,11 +29,18 @@ case "$DIFF_OPTION" in
     "--all") GIT_DIFF_CMD="git diff HEAD --unified=0";;
 esac
 
-# Define colors correctly for compatibility
-GREEN="\033[32m"
-RED="\033[31m"
-YELLOW="\033[33m"
-RESET="\033[0m"
+# Define colors correctly for compatibility, or disable if no-color is set
+if $NO_COLOR; then
+    GREEN=""
+    RED=""
+    YELLOW=""
+    RESET=""
+else
+    GREEN="\033[32m"
+    RED="\033[31m"
+    YELLOW="\033[33m"
+    RESET="\033[0m"
+fi
 
 # Search for newly added console.log or debugger statements
 echo -e "\n🔍 Checking for ${RED}console.log${RESET} or ${RED}debugger${RESET} statements in $DIFF_OPTION changes...\n"

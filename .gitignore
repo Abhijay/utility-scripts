@@ -1,3 +1,6 @@
 gpw
 .DS_Store
 .vscode
+.aider*
+git-aliases/hooks
+git-aliases/prompts
