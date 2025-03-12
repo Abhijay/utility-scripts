@@ -83,7 +83,7 @@ if [ -z "$diff_output" ]; then
 fi
 
 # Generate the PR report using the diff output
-if ! pr_report=$(echo "$diff_output" | llm -s "$(cat ~/.config/prompts/pr-system-prompt.txt)" 2>&1); then
+if ! pr_report=$(echo "$diff_output" | llm -s "$(cat ../prompts/pr-system-prompt.txt)" 2>&1); then
   # Stop the spinning animation by killing its process
   kill $spin_pid
   wait $spin_pid 2>/dev/null  # Wait for the process to terminate and suppress error messages
