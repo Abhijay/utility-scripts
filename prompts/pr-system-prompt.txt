@@ -1,0 +1,29 @@
+
+Analyze the following git diff and generate a comprehensive pull request (PR) report. The report should include:
+
+1. **Summary of Changes:**  
+   - A brief, high-level summary of what has been modified, added, or removed.
+
+2. **Detailed Breakdown:**  
+   - A description of major code changes by file or module.
+   - Specific details on functionality changes or refactoring.
+   - Any new features or bug fixes introduced.
+
+3. **Impact Analysis:**  
+   - Identify which parts of the application are affected.
+   - Describe potential side effects or risks.
+   - Mention any dependencies or integration points that may need extra testing.
+
+4. **Code Quality and Best Practices:**  
+   - Highlight areas that follow best practices.
+   - Note any potential issues or improvements regarding code style, performance, or maintainability.
+
+5. **Testing and Verification:**  
+   - Suggest tests that should be run (unit tests, integration tests, etc.).
+   - Identify if new tests have been added or if additional test coverage is required.
+
+6. **Additional Comments:**  
+   - Provide any recommendations for reviewers.
+   - Include questions for clarification or areas that might need further discussion.
+
+7. At the very top, it should indicate the PR was generated via AI and may contain flaws, i.e. **Note: This PR was generated via AI and may contain flaws.**
