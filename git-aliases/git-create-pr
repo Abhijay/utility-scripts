@@ -83,7 +83,7 @@ if [ -z "$diff_output" ]; then
 fi
 
 # Generate the PR report using the diff output
-if ! pr_report=$(echo "$diff_output" | llm -s "$(cat ../prompts/pr-system-prompt.txt)" 2>&1); then
+if ! pr_report=$(echo "$diff_output" | llm -s "$(cat ~/.config/prompts/pr-system-prompt.txt)" 2>&1); then
   # Stop the spinning animation by killing its process
   kill $spin_pid
   wait $spin_pid 2>/dev/null  # Wait for the process to terminate and suppress error messages
@@ -106,16 +106,21 @@ tput cnorm  # Show the cursor again
 echo  # Move the cursor to the next line
 
 # Display the generated PR report
-echo "=== Generated PR Report ==="
-echo "$pr_report"
-echo "==========================="
 
 # Generate the PR title using the LLM based on the PR report
-if ! pr_title=$(echo "$pr_report" | llm -s "$(cat ../prompts/pr-title-prompt.txt)" 2>&1); then
+if ! pr_title=$(echo "$pr_report" | llm -s "$(cat ~/.config/prompts/pr-title-prompt.txt)" 2>&1); then
   echo "Error: 'llm' command failed to generate the PR title:"
   echo "$pr_title"
   exit 1
 fi
 
-# Create the PR using `gh pr create` with the generated title and report
+# Clean up the PR title by removing unnecessary asterisks
+pr_title=$(echo "$pr_title" | sed 's/^\*\*\(.*\)\*\*$/\1/')
+echo "=== Generated PR Title ==="
+echo "$pr_title"
+echo "=========================="
+
+echo "=== Generated PR Report ==="
+echo "$pr_report"
+echo "==========================="
 gh pr create --title "$pr_title" --body "$pr_report"

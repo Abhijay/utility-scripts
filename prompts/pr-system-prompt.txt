@@ -26,4 +26,4 @@ Analyze the following git diff and generate a comprehensive pull request (PR) re
    - Provide any recommendations for reviewers.
    - Include questions for clarification or areas that might need further discussion.
 
-7. At the very top, it should indicate the PR was generated via AI and may contain flaws, i.e. **Note: This PR was generated via AI and may contain flaws.**
+7. At the very top, it should indicate the PR was generated via AI and may contain flaws, i.e. **Note: This PR description was generated via AI and may contain flaws.**
