@@ -1,0 +1,37 @@
+#!/bin/bash
+
+# Script to display GitHub Actions status for the current branch's PR
+# Save this file as 'gh-action-status.sh' and run with 'chmod +x gh-action-status.sh && ./gh-action-status.sh'
+
+# Function to check if command exists
+command_exists() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+# Check if required commands are available
+if ! command_exists gh; then
+  echo "Error: GitHub CLI (gh) is not installed. Please install it first:"
+  echo "  brew install gh"
+  exit 1
+fi
+
+# Get current branch and PR number
+BRANCH=$(git branch --show-current)
+PR_NUMBER=$(gh pr list --head "$BRANCH" --json number -q '.[0].number' 2>/dev/null)
+
+if [ -z "$PR_NUMBER" ]; then
+  echo "Error: No pull request found for branch '$BRANCH'"
+  exit 1
+fi
+
+echo "GitHub Actions status for PR #$PR_NUMBER on branch '$BRANCH':"
+echo "----------------------------------------"
+
+# Display current status of checks
+gh pr checks "$PR_NUMBER" | cat
+
+# Ask if the user wants to open the PR
+read -p "Would you like to open the PR in your browser? (y/n): " ANSWER
+if [[ "$ANSWER" == "y" || "$ANSWER" == "Y" ]]; then
+  gh pr view "$PR_NUMBER" --web
+fi

@@ -1,0 +1,29 @@
+#!/bin/bash
+set -e
+
+usage() {
+  echo "Usage: git sstash <untracked|staged>"
+  echo ""
+  echo "Selectively stash only untracked or staged files."
+  echo ""
+  echo "Options:"
+  echo "  untracked    Stash only untracked files"
+  echo "  staged       Stash only staged files"
+  exit 1
+}
+
+if [ $# -ne 1 ]; then
+  usage
+fi
+
+case "$1" in
+  untracked)
+    git stash --keep-index --include-untracked
+    ;;
+  staged)
+    git stash push --staged
+    ;;
+  *)
+    usage
+    ;;
+esac
