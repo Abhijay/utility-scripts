@@ -1,2 +1,1 @@
-$(git branches -s)
-git sl
+git branches -s && git sl

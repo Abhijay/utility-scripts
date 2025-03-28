@@ -1,7 +1,22 @@
-# Generate a concise and descriptive PR title following Angular commit message conventions.
-# The title should be in the format: <type>(<scope>): <subject>
-# Where:
-# - <type> is a noun, such as "fix", "feat", "docs", "style", "refactor", "test", or "chore".
-# - <scope> is a noun describing a section of the codebase (optional).
-# - <subject> is a short description of the change, written in the imperative mood.
-# Use the provided PR description to infer the type, scope, and subject.
+# Generate a concise and descriptive PR title following the Angular commit message convention:
+# Format: <type>(<scope>)[<JIRA-TICKET>]: <subject>
+#
+# Components:
+# - <type>: The nature of the change (one of: feat, fix, docs, style, refactor, test, chore)
+# - <scope>: A short noun representing the area of the codebase changed (e.g. api, parser, auth)
+# - [<JIRA-TICKET>]: Optional JIRA ticket in the format ABC-123
+# - <subject>: A short sentence in the imperative mood that describes the change (e.g., "add login button")
+#
+# Rules:
+# - Do not capitalize the subject (e.g., "add logging support" not "Add Logging Support")
+# - Keep the title under 100 characters
+# - Avoid redundancy with ticket title or scope
+# - Infer the type, scope, and subject from the provided PR description
+# - If a JIRA ticket is included, format must be: <type>(<scope>)[ABC-123]: <subject>
+#
+# Examples:
+# - feat(api): add pagination to user endpoint
+# - fix(parser)[ALL-124]: handle invalid dates in ISO format
+# - chore(dev): update linting rules for CI
+
+# Based on the following PR description, generate a valid PR title:
