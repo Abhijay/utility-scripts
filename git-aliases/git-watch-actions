@@ -1,37 +1,95 @@
-#!/bin/bash
+#!/usr/bin/env bash
+#
+# git-watch-actions — monitor a PR’s status checks and alert when done.
+#
+# Usage:
+#   git-watch-actions [<pr-number>] [<poll-seconds>]
+#   git-watch-actions --kill
+#
+# No args         → auto-detect PR for current branch
+# <pr-number>     → watch that PR instead
+# [poll-seconds]  → how often to poll (default 30s)
+# --kill          → kill all background watchers
+# --daemon        → internal flag (do not call)
 
-# Script to display GitHub Actions status for the current branch's PR
-# Save this file as 'gh-action-status.sh' and run with 'chmod +x gh-action-status.sh && ./gh-action-status.sh'
+set -euo pipefail
+SCRIPT_NAME=$(basename "$0")
 
-# Function to check if command exists
-command_exists() {
-  command -v "$1" >/dev/null 2>&1
-}
-
-# Check if required commands are available
-if ! command_exists gh; then
-  echo "Error: GitHub CLI (gh) is not installed. Please install it first:"
-  echo "  brew install gh"
-  exit 1
+# —————————————
+# 1) --kill mode
+# —————————————
+if [[ "${1-:-}" == "--kill" ]]; then
+  pids=$(pgrep -f "\b$SCRIPT_NAME --daemon" || true)
+  if [[ -z "$pids" ]]; then
+    echo "No active watchers to kill."
+  else
+    echo "Killing watcher PIDs: $pids"
+    kill $pids
+  fi
+  exit 0
 fi
 
-# Get current branch and PR number
-BRANCH=$(git branch --show-current)
-PR_NUMBER=$(gh pr list --head "$BRANCH" --json number -q '.[0].number' 2>/dev/null)
+# —————————————
+# 2) initial invocation (before daemonizing)
+# —————————————
+if [[ "${1-:-}" != "--daemon" ]]; then
+  PR_NUMBER="${1:-}"      # empty if not passed
+  INTERVAL="${2:-30}"     # default 30s
 
-if [ -z "$PR_NUMBER" ]; then
-  echo "Error: No pull request found for branch '$BRANCH'"
-  exit 1
+  # sanity: reject unknown flags
+  if [[ -n "$PR_NUMBER" && "$PR_NUMBER" == --* ]]; then
+    echo "Unknown option: $PR_NUMBER" >&2
+    exit 1
+  fi
+
+  # auto-detect PR if none given
+  if [[ -z "$PR_NUMBER" ]]; then
+    BRANCH=$(git rev-parse --abbrev-ref HEAD)
+    if ! PR_NUMBER=$(gh pr view --json number -q .number 2>/dev/null); then
+      echo "❌ No open PR found for branch '$BRANCH'." >&2
+      exit 1
+    fi
+    echo "→ Detected PR #$PR_NUMBER on branch '$BRANCH'."
+  fi
+
+  # re-exec ourselves in the background
+  nohup bash "$0" --daemon "$PR_NUMBER" "$INTERVAL" >/dev/null 2>&1 &
+  echo "🔍 Monitoring PR #$PR_NUMBER in background (PID $!)."
+  echo "   To stop: $SCRIPT_NAME --kill"
+  exit 0
 fi
 
-echo "GitHub Actions status for PR #$PR_NUMBER on branch '$BRANCH':"
-echo "----------------------------------------"
+# —————————————
+# 3) daemonized child
+# —————————————
+shift    # drop --daemon
+PR_NUMBER="$1"
+INTERVAL="${2:-30}"
 
-# Display current status of checks
-gh pr checks "$PR_NUMBER" | cat
+# resolve repo & commit SHA
+REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
+HEAD_SHA=$(gh pr view "$PR_NUMBER" --json headRefOid -q .headRefOid)
 
-# Ask if the user wants to open the PR
-read -p "Would you like to open the PR in your browser? (y/n): " ANSWER
-if [[ "$ANSWER" == "y" || "$ANSWER" == "Y" ]]; then
-  gh pr view "$PR_NUMBER" --web
-fi
+echo "→ [$(date +'%H:%M:%S')] Watching PR #$PR_NUMBER in $REPO (SHA $HEAD_SHA), polling every ${INTERVAL}s…"
+
+while true; do
+  resp=$(gh api \
+    -H "Accept: application/vnd.github.v3+json" \
+    "/repos/$REPO/commits/$HEAD_SHA/check-runs")
+
+  pending=$(jq '[.check_runs[] | select(.status != "completed")] | length' <<<"$resp")
+  printf '%s  Pending checks: %d\n' "$(date +'%H:%M:%S')" "$pending"
+
+  if [[ "$pending" -eq 0 ]]; then
+    echo "✔ [$(date +'%H:%M:%S')] All checks complete for PR #$PR_NUMBER!"
+    echo -ne '\a'
+    if command -v notify-send &>/dev/null; then
+      notify-send "PR #$PR_NUMBER checks complete" "All status checks are done for $REPO."
+    elif command -v osascript &>/dev/null; then
+      osascript -e 'display notification "All checks finished" with title "PR #'"$PR_NUMBER"' Ready"'
+    fi
+    exit 0
+  fi
+
+  sleep "$INTERVAL"
+done

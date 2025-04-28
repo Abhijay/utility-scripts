@@ -1,0 +1,63 @@
+#!/bin/bash
+# This script attempts to quit all open, non-background applications
+# excluding Finder and iTerm. It first sends a graceful quit command,
+# waits, then force-quits any app that is still running.
+#
+# WARNING: Force-quitting may result in loss of unsaved work.
+
+# List of applications that should not be quit.
+EXCLUDE=("Finder" "iTerm2")
+
+# Get the list of all visible (foreground) process names
+IFS=$'\n'
+all_apps=($(osascript <<'EOF'
+tell application "System Events"
+    set appList to name of every process whose background only is false
+end tell
+return appList
+EOF
+))
+
+# Filter out the excluded apps
+apps=()
+for app in "${all_apps[@]}"; do
+    skip=false
+    for ex in "${EXCLUDE[@]}"; do
+        if [ "$app" = "$ex" ]; then
+            skip=true
+            break
+        fi
+    done
+    if ! $skip; then
+        apps+=("$app")
+    fi
+done
+
+echo "Applications to quit:"
+for app in "${apps[@]}"; do
+    echo " - $app"
+done
+
+# Attempt to quit each app gracefully using AppleScript
+for app in "${apps[@]}"; do
+    echo "Attempting to gracefully quit \"$app\"..."
+    osascript -e "tell application \"$app\" to quit"
+done
+
+# Wait a little to let the apps exit normally.
+sleep 5
+
+# For any remaining app still running, force quit it.
+for app in "${apps[@]}"; do
+    # Check if the process is still running. Note that pgrep might not match apps
+    # whose process names differ slightly from the application name.
+    if pgrep -x "$app" > /dev/null; then
+        echo "\"$app\" did not quit gracefully. Force quitting..."
+        killall "$app"
+    fi
+done
+
+# Close all Finder windows without quitting Finder itself.
+osascript -e 'tell application "Finder" to close windows'
+
+echo "All applicable applications have been processed."

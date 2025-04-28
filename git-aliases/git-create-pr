@@ -134,4 +134,4 @@ echo "$pr_report"
 echo "==========================="
 
 # Create the PR using GitHub CLI with the generated title and report
-gh pr create --title "$pr_title" --body "$(echo -e "$pr_report")"
+gh pr create --title "$pr_title" --body "$(echo $pr_report)"
