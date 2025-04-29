@@ -15,16 +15,42 @@
 set -euo pipefail
 SCRIPT_NAME=$(basename "$0")
 
+# Define colors
+COLOR_RESET='\033[0m'
+COLOR_RED='\033[0;31m'
+COLOR_GREEN='\033[0;32m'
+COLOR_YELLOW='\033[0;33m'
+COLOR_BLUE='\033[0;34m'
+COLOR_CYAN='\033[0;36m'
+
+# Determine available notification tool
+NOTIFICATION_CMD=""
+if command -v terminal-notifier &> /dev/null; then
+  NOTIFICATION_CMD="terminal-notifier"
+elif command -v osascript &> /dev/null; then
+  printf "${COLOR_YELLOW}⚠️ Warning: Preferred notification tool 'terminal-notifier' not found.${COLOR_RESET}\n" >&2
+  printf "   Install it using Homebrew:\n" >&2
+  printf "\n" >&2
+  printf "     ${COLOR_CYAN}brew install terminal-notifier${COLOR_RESET}\n" >&2
+  NOTIFICATION_CMD="osascript"
+else
+  printf "${COLOR_YELLOW}⚠️ Warning: No supported notification tool found (terminal-notifier or osascript).${COLOR_RESET}\n" >&2
+  printf "   Notifications will only be printed to the console.\n" >&2
+  printf "   Install terminal-notifier for richer notifications:\n" >&2
+  printf "\n" >&2
+  printf "     ${COLOR_CYAN}brew install terminal-notifier${COLOR_RESET}\n" >&2
+  # Do not exit, allow console fallback
+fi
+
+
 # —————————————
 # 1) --kill mode
 # —————————————
 if [[ "${1-:-}" == "--kill" ]]; then
-  pids=$(pgrep -f "\b$SCRIPT_NAME --daemon" || true)
-  if [[ -z "$pids" ]]; then
-    echo "No active watchers to kill."
+  if pkill -f "$SCRIPT_NAME --daemon"; then
+    printf "${COLOR_GREEN}✔ Killed watcher(s) for $SCRIPT_NAME.${COLOR_RESET}\n"
   else
-    echo "Killing watcher PIDs: $pids"
-    kill $pids
+    printf "${COLOR_YELLOW}ℹ️ No active watchers to kill.${COLOR_RESET}\n" # Changed from error to info
   fi
   exit 0
 fi
@@ -38,24 +64,26 @@ if [[ "${1-:-}" != "--daemon" ]]; then
 
   # sanity: reject unknown flags
   if [[ -n "$PR_NUMBER" && "$PR_NUMBER" == --* ]]; then
-    echo "Unknown option: $PR_NUMBER" >&2
+    printf "${COLOR_RED}❌ Unknown option: %s${COLOR_RESET}\n" "$PR_NUMBER" >&2
     exit 1
   fi
 
   # auto-detect PR if none given
   if [[ -z "$PR_NUMBER" ]]; then
     BRANCH=$(git rev-parse --abbrev-ref HEAD)
+    # Suppress gh stderr temporarily for the check
     if ! PR_NUMBER=$(gh pr view --json number -q .number 2>/dev/null); then
-      echo "❌ No open PR found for branch '$BRANCH'." >&2
+      printf "${COLOR_RED}❌ No open PR found for branch '%s'.${COLOR_RESET}\n" "$BRANCH" >&2
       exit 1
     fi
-    echo "→ Detected PR #$PR_NUMBER on branch '$BRANCH'."
+    printf "${COLOR_BLUE}→ Detected PR #%s on branch '%s'.${COLOR_RESET}\n" "$PR_NUMBER" "$BRANCH"
   fi
 
   # re-exec ourselves in the background
-  nohup bash "$0" --daemon "$PR_NUMBER" "$INTERVAL" >/dev/null 2>&1 &
-  echo "🔍 Monitoring PR #$PR_NUMBER in background (PID $!)."
-  echo "   To stop: $SCRIPT_NAME --kill"
+  nohup bash "$0" --daemon "$PR_NUMBER" "$INTERVAL" "$NOTIFICATION_CMD" >/dev/null 2>&1 &
+  PID=$!
+  printf "${COLOR_CYAN}🔍 Monitoring PR #%s in background (PID %d).${COLOR_RESET}\n" "$PR_NUMBER" "$PID"
+  printf "   To stop: ${COLOR_YELLOW}%s --kill${COLOR_RESET}\n" "$SCRIPT_NAME"
   exit 0
 fi
 
@@ -65,29 +93,70 @@ fi
 shift    # drop --daemon
 PR_NUMBER="$1"
 INTERVAL="${2:-30}"
+# Retrieve notification command passed from parent
+NOTIFICATION_CMD="${3:-}" # Will be empty if none was found
 
 # resolve repo & commit SHA
 REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
 HEAD_SHA=$(gh pr view "$PR_NUMBER" --json headRefOid -q .headRefOid)
+PR_URL="https://github.com/$REPO/pull/$PR_NUMBER"
 
-echo "→ [$(date +'%H:%M:%S')] Watching PR #$PR_NUMBER in $REPO (SHA $HEAD_SHA), polling every ${INTERVAL}s…"
+printf "${COLOR_BLUE}→ [%s] Watching PR #%s in %s (SHA %s), polling every %ss…${COLOR_RESET}\n" \
+       "$(date +'%H:%M:%S')" "$PR_NUMBER" "$REPO" "$HEAD_SHA" "$INTERVAL"
 
 while true; do
-  resp=$(gh api \
+  # Use gh api with error checking
+  if ! resp=$(gh api \
     -H "Accept: application/vnd.github.v3+json" \
-    "/repos/$REPO/commits/$HEAD_SHA/check-runs")
+    "/repos/$REPO/commits/$HEAD_SHA/check-runs" 2>/dev/null); then
+      printf "${COLOR_YELLOW}⚠️ [%s] Failed to fetch check runs for PR #%s (SHA %s). Retrying in %ss...${COLOR_RESET}\n" \
+             "$(date +'%H:%M:%S')" "$PR_NUMBER" "$HEAD_SHA" "$INTERVAL" >&2
+      sleep "$INTERVAL"
+      continue
+  fi
 
-  pending=$(jq '[.check_runs[] | select(.status != "completed")] | length' <<<"$resp")
-  printf '%s  Pending checks: %d\n' "$(date +'%H:%M:%S')" "$pending"
+
+  # Use jq with error checking
+  if ! pending=$(jq '[.check_runs[] | select(.status != "completed")] | length' <<<"$resp" 2>/dev/null); then
+      printf "${COLOR_YELLOW}⚠️ [%s] Failed to parse check runs response for PR #%s. Retrying in %ss...${COLOR_RESET}\n" \
+             "$(date +'%H:%M:%S')" "$PR_NUMBER" "$INTERVAL" >&2
+      # Optionally print the problematic response for debugging:
+      # echo "Problematic response:" >&2
+      # echo "$resp" >&2
+      sleep "$INTERVAL"
+      continue
+  fi
+
+  # Check if pending is a valid number
+  if ! [[ "$pending" =~ ^[0-9]+$ ]]; then
+      printf "${COLOR_YELLOW}⚠️ [%s] Invalid 'pending' count obtained: '%s'. Retrying in %ss...${COLOR_RESET}\n" \
+             "$(date +'%H:%M:%S')" "$pending" "$INTERVAL" >&2
+      sleep "$INTERVAL"
+      continue
+  fi
+
+
+  printf '%s  Pending checks: %d\n' "$(date +'%H:%M:%S')" "$pending" # Keep this less colorful for less noise
 
   if [[ "$pending" -eq 0 ]]; then
-    echo "✔ [$(date +'%H:%M:%S')] All checks complete for PR #$PR_NUMBER!"
-    echo -ne '\a'
-    if command -v notify-send &>/dev/null; then
-      notify-send "PR #$PR_NUMBER checks complete" "All status checks are done for $REPO."
-    elif command -v osascript &>/dev/null; then
-      osascript -e 'display notification "All checks finished" with title "PR #'"$PR_NUMBER"' Ready"'
+    printf "${COLOR_GREEN}✔ [%s] All checks complete for PR #%s!${COLOR_RESET}\n" "$(date +'%H:%M:%S')" "$PR_NUMBER"
+    echo -ne '\a' # Bell sound
+
+    # Send notification using the available command
+    if [[ "$NOTIFICATION_CMD" == "terminal-notifier" ]]; then
+      terminal-notifier \
+        -title "PR #$PR_NUMBER Ready" \
+        -message "All checks finished for $REPO." \
+        -subtitle "$PR_URL" \
+        -open "$PR_URL" \
+        -sound default # Add default sound
+    elif [[ "$NOTIFICATION_CMD" == "osascript" ]]; then
+      osascript -e "display notification \"All checks finished for $REPO.\n$PR_URL\" with title \"PR #$PR_NUMBER Ready\" subtitle \"Checks Complete\" sound name \"Submarine\""
+    else
+      # Fallback if no notification tool is available
+      printf "${COLOR_BLUE}👉 Open PR in browser: %s${COLOR_RESET}\n" "$PR_URL"
     fi
+
     exit 0
   fi
 
