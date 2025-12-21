@@ -1,0 +1,26 @@
+# Shell wrapper for git-wt.py with cd support
+# Source this file in your .bashrc/.zshrc:
+#   source /path/to/gwt
+#
+# Or copy the gwt() function directly into your shell rc file.
+
+gwt() {
+  case "$*" in
+    *-h*|*--help*|*prune*)
+      git-wt.py "$@"
+      return
+      ;;
+    *-r*|*--remove*)
+      # Get main worktree before removing (in case we're inside the one being deleted)
+      local main_wt
+      main_wt="$(git worktree list --porcelain | grep '^worktree ' | head -1 | cut -d' ' -f2)"
+      git-wt.py "$@" || return
+      # Always cd to main worktree after remove (zsh caches deleted dirs)
+      cd "$main_wt"
+      return
+      ;;
+  esac
+  local dir
+  dir="$(git-wt.py --print-path "$@" | tail -n1)" || return
+  [[ -n "$dir" ]] && cd "$dir"
+}

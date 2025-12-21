@@ -1,0 +1,162 @@
+#!/usr/bin/env bash
+# git-scout: git-branchless smartlog helper with alt-screen menu (like less/vim)
+set -euo pipefail
+
+# -------- Colors --------
+RED="\033[31m"
+GREEN="\033[32m"
+YELLOW="\033[33m"
+BLUE="\033[34m"
+MAGENTA="\033[35m"
+CYAN="\033[36m"
+BOLD="\033[1m"
+RESET="\033[0m"
+
+# -------- Settings --------
+MAIN_BRANCH_DEFAULT="main"
+EXTRA_FLAGS=()
+REV_ORDER="normal"
+LABEL_W=34  # width for the middle column labels
+
+# -------- Helpers --------
+have_branchless() {
+  git branchless smartlog --help >/dev/null 2>&1
+}
+
+enter_alt() { tput smcup 2>/dev/null || true; tput civis 2>/dev/null || true; }
+leave_alt() { tput rmcup 2>/dev/null || true; tput cnorm 2>/dev/null || true; }
+
+err() {
+  echo -e "${RED}Error:${RESET} $*" >&2
+}
+
+run_smartlog() {
+  local revset="$1"; shift || true
+  local flags=("${EXTRA_FLAGS[@]}")
+  [[ "$REV_ORDER" == "reverse" ]] && flags=("-r" "${flags[@]}")
+
+  # switch back to main terminal before running output
+  leave_alt
+  echo -e "\n${BOLD}${CYAN}Running:${RESET} git smartlog ${flags[*]} \"$revset\""
+  echo -e "${MAGENTA}------------------------------------------------------------${RESET}"
+  git smartlog "${flags[@]}" "$revset" || true
+  echo -e "${MAGENTA}------------------------------------------------------------${RESET}\n"
+  # best-effort: remove the immediate command from history (bash)
+  history -d $((HISTCMD-1)) 2>/dev/null || true
+  exit 0
+}
+
+ask_days() {
+  local days
+  read -rp "$(echo -e "${YELLOW}Last how many days? (default: 30): ${RESET}")" days < /dev/tty
+  days="${days:-30}"
+  echo "author.date(\"after:${days} days ago\")"
+}
+
+ask_custom_date_expr() {
+  echo -e "${CYAN}Examples:${RESET}\n  ${GREEN}author.date(\"after:2025-07-01\")${RESET}\n  ${GREEN}committer.date(\"after:2 weeks ago\")${RESET}\n  ${GREEN}author.date(\"before:2024-12-31\")${RESET}\n"
+  read -rp "$(echo -e "${YELLOW}Enter date filter expression:${RESET} ")" expr < /dev/tty
+  echo "$expr"
+}
+
+ask_custom_revset() {
+  echo -e "${CYAN}Enter revset (e.g. ${GREEN}ancestors(@) % main()${CYAN}):${RESET}"
+  read -rp "$(echo -e "${YELLOW}> ${RESET}")" rs < /dev/tty
+  echo "$rs"
+}
+
+toggle_flags_menu() {
+  clear
+  echo -e "${BOLD}${BLUE}=== Toggles ===${RESET}"
+  echo -e "1) Reverse order (current: ${GREEN}${REV_ORDER}${RESET})"
+  local exact="off"
+  for f in "${EXTRA_FLAGS[@]:-}"; do [[ "$f" == "--exact" ]] && exact="on"; done
+  echo -e "2) Toggle --exact (current: ${GREEN}${exact}${RESET})"
+  echo -e "3) Set main branch name (current: ${GREEN}${MAIN_BRANCH_DEFAULT}${RESET})"
+  echo -e "b) Back (exit)"
+  read -rp "$(echo -e "${YELLOW}Choose:${RESET} ")" t < /dev/tty
+  case "$t" in
+    1) REV_ORDER=$([[ "$REV_ORDER" == "normal" ]] && echo "reverse" || echo "normal") ;;
+    2)
+      local found="no"
+      for i in "${!EXTRA_FLAGS[@]}"; do
+        [[ "${EXTRA_FLAGS[$i]}" == "--exact" ]] && unset 'EXTRA_FLAGS[i]' && found="yes"
+      done
+      [[ "$found" == "no" ]] && EXTRA_FLAGS+=("--exact")
+      ;;
+    3) read -rp "$(echo -e "${YELLOW}Main branch name:${RESET} ")" MAIN_BRANCH_DEFAULT < /dev/tty ;;
+    b|B) ;;
+  esac
+  # leave alt screen and show current config quickly
+  leave_alt
+  echo -e "${BOLD}Toggles updated.${RESET} Main: ${GREEN}${MAIN_BRANCH_DEFAULT}${RESET} | Order: ${GREEN}${REV_ORDER}${RESET} | Extra: ${GREEN}${EXTRA_FLAGS[*]-<none>}${RESET}"
+  exit 0
+}
+
+# -------- Startup checks --------
+if ! have_branchless; then err "git-branchless not detected."; exit 1; fi
+
+# -------- Alt-screen Menu --------
+enter_alt
+clear
+
+echo -e "${BOLD}${BLUE}git-scout :: git-branchless smartlog menu${RESET}"
+echo -e "Main branch: ${GREEN}${MAIN_BRANCH_DEFAULT}${RESET} | Order: ${GREEN}${REV_ORDER}${RESET} | Extra flags: ${GREEN}${EXTRA_FLAGS[*]-<none>}${RESET}\n"
+
+# Active Work
+echo -e "${BOLD}${MAGENTA}ACTIVE WORK${RESET}"
+printf "${BOLD}${CYAN}%-3s${RESET} %-${LABEL_W}s ${YELLOW}%s${RESET}\n" "1)"  "Current stack"                        "(HEAD's WIP draft stack)"
+printf "${BOLD}${CYAN}%-3s${RESET} %-${LABEL_W}s ${YELLOW}%s${RESET}\n" "2)"  "Show WIP not on main"               "(drafts, branches, HEAD % main)"
+printf "${BOLD}${CYAN}%-3s${RESET} %-${LABEL_W}s ${YELLOW}%s${RESET}\n" "3)"  "Show WIP (redundant full)"         "(same as above + branches/@ again)"
+printf "${BOLD}${CYAN}%-3s${RESET} %-${LABEL_W}s ${YELLOW}%s${RESET}\n" "4)"  "Stack + drafts + branches"         "(everything you're touching)"
+printf "${BOLD}${CYAN}%-3s${RESET} %-${LABEL_W}s ${YELLOW}%s${RESET}\n" "5)"  "Main + drafts + branches"          "(main plus active changes)"
+
+# History & Ancestry
+echo -e "\n${BOLD}${MAGENTA}HISTORY & ANCESTRY${RESET}"
+printf "${BOLD}${CYAN}%-3s${RESET} %-${LABEL_W}s ${YELLOW}%s${RESET}\n" "6)"  "Descendants of main"               "(commits building on main)"
+printf "${BOLD}${CYAN}%-3s${RESET} %-${LABEL_W}s ${YELLOW}%s${RESET}\n" "7)"  "Recent commits (last N days)"     "(e.g. last 30 days by author)"
+printf "${BOLD}${CYAN}%-3s${RESET} %-${LABEL_W}s ${YELLOW}%s${RESET}\n" "8)"  "Enter a date filter expression"   "(e.g. author.date(after:1 week ago))"
+printf "${BOLD}${CYAN}%-3s${RESET} %-${LABEL_W}s ${YELLOW}%s${RESET}\n" "9)"  "Enter a custom revset"            "(full control of revset DSL)"
+
+# Cleanup & Diagnosis
+echo -e "\n${BOLD}${MAGENTA}CLEANUP & DIAGNOSIS${RESET}"
+printf "${BOLD}${CYAN}%-3s${RESET} %-${LABEL_W}s ${YELLOW}%s${RESET}\n" "10)" "Branch tips only"                   "(what branches point to)"
+printf "${BOLD}${CYAN}%-3s${RESET} %-${LABEL_W}s ${YELLOW}%s${RESET}\n" "11)" "Find dangling heads"                "(heads not on any branch)"
+printf "${BOLD}${CYAN}%-3s${RESET} %-${LABEL_W}s ${YELLOW}%s${RESET}\n" "12)" "Find dangling heads (reverse)"      "(reverse-order variant)"
+printf "${BOLD}${CYAN}%-3s${RESET} %-${LABEL_W}s ${YELLOW}%s${RESET}\n" "13)" "Dangling heads across all history" "(even from old rewritten work)"
+printf "${BOLD}${CYAN}%-3s${RESET} %-${LABEL_W}s ${YELLOW}%s${RESET}\n" "14)" "Full history of dangling heads"     "(ancestors of unbranched heads)"
+printf "${BOLD}${CYAN}%-3s${RESET} %-${LABEL_W}s ${YELLOW}%s${RESET}\n" "15)" "Orphaned commits (not on branches)" "(commits not reachable from any branch)"
+
+# Other
+echo -e "\n${BOLD}${MAGENTA}OTHER${RESET}"
+printf "${BOLD}${MAGENTA}%-3s${RESET} %-${LABEL_W}s ${YELLOW}%s${RESET}\n" "t)" "Toggles"                              "(reverse order, --exact, main)"
+printf "${BOLD}${RED}%-3s${RESET} %-${LABEL_W}s ${YELLOW}%s${RESET}\n" "q)" "Quit"                                 ""
+
+# Prompt on alt screen and read from the TTY directly
+read -rp "$(echo -e "${YELLOW}Choose an option:${RESET} ")" choice < /dev/tty
+
+case "$choice" in
+  1) run_smartlog "stack()" ;;
+  2) run_smartlog "((draft() | branches() | @) % ${MAIN_BRANCH_DEFAULT}())" ;;
+  3) run_smartlog "((draft() | branches() | @) % ${MAIN_BRANCH_DEFAULT}()) | branches() | @" ;;
+  4) run_smartlog "stack() | draft() | branches()" ;;
+  5) run_smartlog "${MAIN_BRANCH_DEFAULT}() | draft() | branches()" ;;
+  6) run_smartlog "descendants(${MAIN_BRANCH_DEFAULT})" ;;
+  7) revset=$(ask_days); run_smartlog "$revset" ;;
+  8) revset=$(ask_custom_date_expr); run_smartlog "$revset" ;;
+  9) revset=$(ask_custom_revset); [[ -n "$revset" ]] && run_smartlog "$revset" ;;
+ 10) run_smartlog "branches()" ;;
+ 11) run_smartlog "heads(all()) - branches()" ;;
+ 12) REV_ORDER="reverse"; run_smartlog "heads(all()) - branches()" ;;
+ 13) run_smartlog "heads(all()) - branches()" ;;
+ 14) run_smartlog "ancestors(heads(all()) - branches())" ;;
+ 15) run_smartlog "all() - ancestors(branches())" ;;
+  t|T) toggle_flags_menu ;;
+  q|Q) leave_alt; exit 0 ;;
+  *) leave_alt; err "Invalid option: $choice"; exit 1 ;;
+esac
+
+
+
+2/2
+

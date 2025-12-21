@@ -1,4 +1,289 @@
 alias gsl='git sl'
 alias gsb='git sb'
 alias gsw='git sw -i'
+alias gdf='git diff --name-only | fzf --preview "git diff --color=always -- {} | delta" | xargs -o -I{} sh -c "git diff -- {} | delta"'
 
+# WIP
+
+# Show my current WIP that's not on main
+alias git-show-wip='git smartlog "((draft() | branches() | @) % main())"'
+
+# Same as above but redundantly re-add branches & @ (safe if unsure)
+alias git-show-wip-full='git smartlog "((draft() | branches() | @) % main()) | branches() | @"'
+
+# Current commit stack only
+alias git-stack='git smartlog "stack()"'
+alias gsls=git-stack
+
+# Stack + all drafts + branches
+alias git-stack-all='git smartlog "stack() | draft() | branches()"'
+
+# Main branch + all drafts + branches
+alias git-main-work='git smartlog "main() | draft() | branches()"'
+
+
+## Dangling / Orphaned Commits
+
+# Heads not pointed to by a branch (normal order)
+alias git-find-dangling='git smartlog "heads() - branches()"'
+
+# Heads not pointed to by a branch (reverse order)
+alias git-find-dangling-rev='git smartlog -r "heads() - branches()"'
+
+# Heads across all history not pointed to by a branch
+alias git-find-dangling-all='git smartlog "heads(all()) - branches()"'
+
+# Full history of dangling heads
+alias git-find-dangling-history='git smartlog "ancestors(heads(all()) - branches())"'
+
+# Commits not reachable from any branch
+alias git-find-orphans='git smartlog "all() - ancestors(branches())"'
+
+
+## Branches
+
+# Just branch tips
+alias git-branches-only='git smartlog "branches()"'
+
+# Main & all commits built on top of it
+alias git-descendants-main='git smartlog "descendants(main)"'
+
+
+## Time
+
+# Commits authored in last 30 days
+alias git-recent-30='git smartlog "author.date(\"after:30 days ago\")"'
+
+
+## Oh-My-Zsh Git Aliases
+# Note: These aliases have been adapted to work without Oh-My-Zsh
+# - $(git_main_branch) -> detects main/master branch from origin
+# - $(git_develop_branch) -> uses 'develop' branch
+# - $(git_current_branch) / $(current_branch) -> uses 'git branch --show-current' (requires git 2.22+)
+
+# Basic
+alias g='git'
+alias ga='git add'
+alias gaa='git add --all'
+alias gapa='git add --patch'
+alias gau='git add --update'
+alias gav='git add --verbose'
+alias gap='git apply'
+alias gapt='git apply --3way'
+
+# Branch
+alias gb='git branch'
+alias gba='git branch -a'
+alias gbd='git branch -d'
+alias gbda='git branch --no-color --merged | grep -vE "^(\+|\s*($(git rev-parse --abbrev-ref origin/HEAD 2>/dev/null | sed "s|origin/||" || git branch -r | grep -E "origin/(main|master)" | head -1 | sed "s|.*origin/||" | tr -d " " || echo main)|develop)\s*$)" | xargs git branch -d 2>/dev/null'
+alias gbD='git branch -D'
+alias gbl='git blame -b -w'
+alias gbnm='git branch --no-merged'
+alias gbr='git branch --remote'
+alias gbs='git bisect'
+alias gbsb='git bisect bad'
+alias gbsg='git bisect good'
+alias gbsr='git bisect reset'
+alias gbss='git bisect start'
+
+# Commit
+alias gc='git commit -v'
+alias gc!='git commit -v --amend'
+alias gcn!='git commit -v --no-edit --amend'
+alias gca='git commit -v -a'
+alias gca!='git commit -v -a --amend'
+alias gcan!='git commit -v -a --no-edit --amend'
+alias gcans!='git commit -v -a -s --no-edit --amend'
+alias gcam='git commit -a -m'
+alias gcas='git commit -a -s'
+alias gcasm='git commit -a -s -m'
+alias gcsm='git commit -s -m'
+alias gcb='git checkout -b'
+alias gcf='git config --list'
+alias gcl='git clone --recurse-submodules'
+alias gccd='git clone --recurse-submodules "$@" && cd "$(basename $_ .git)"'
+alias gclean='git clean -id'
+alias gpristine='git reset --hard && git clean -dffx'
+alias gcm='git checkout $(git rev-parse --abbrev-ref origin/HEAD 2>/dev/null | sed "s|origin/||" || git branch -r | grep -E "origin/(main|master)" | head -1 | sed "s|.*origin/||" | tr -d " " || echo main)'
+alias gcd='git checkout develop'
+alias gcmsg='git commit -m'
+alias gco='git checkout'
+alias gcor='git checkout --recurse-submodules'
+alias gcount='git shortlog -sn'
+alias gcp='git cherry-pick'
+alias gcpa='git cherry-pick --abort'
+alias gcpc='git cherry-pick --continue'
+alias gcs='git commit -S'
+
+# Diff
+alias gd='git diff'
+alias gdca='git diff --cached'
+alias gdcw='git diff --cached --word-diff'
+alias gdct='git describe --tags $(git rev-list --tags --max-count=1)'
+alias gds='git diff --staged'
+alias gdt='git diff-tree --no-commit-id --name-only -r'
+alias gdnolock='git diff $@ ":(exclude)package-lock.json" ":(exclude)*.lock"'
+alias gdup='git diff @{upstream}'
+alias gdv='git diff -w $@ | view -'
+alias gdw='git diff --word-diff'
+
+# Fetch
+alias gf='git fetch'
+alias gfa='git fetch --all --prune'
+alias gfg='git ls-files | grep'
+alias gfo='git fetch origin'
+
+# GUI
+alias gg='git gui citool'
+alias gga='git gui citool --amend'
+alias ggf='git push --force origin $(git branch --show-current)'
+alias ggfl='git push --force-with-lease origin $(git branch --show-current)'
+alias ggl='git pull origin $(git branch --show-current)'
+alias ggp='git push origin $(git branch --show-current)'
+alias ggpnp='ggl && ggp'
+alias ggpull='git pull origin "$(git branch --show-current)"'
+alias ggpur='ggu'
+alias ggpush='git push origin "$(git branch --show-current)"'
+alias ggsup='git branch --set-upstream-to=origin/$(git branch --show-current)'
+alias ggu='git pull --rebase origin $(git branch --show-current)'
+alias gpsup='git push --set-upstream origin $(git branch --show-current)'
+
+# Help
+alias ghh='git help'
+alias gignore='git update-index --assume-unchanged'
+alias gignored='git ls-files -v | grep "^[[:lower:]]"'
+alias git-svn-dcommit-push='git svn dcommit && git push github $(git rev-parse --abbrev-ref origin/HEAD 2>/dev/null | sed "s|origin/||" || git branch -r | grep -E "origin/(main|master)" | head -1 | sed "s|.*origin/||" | tr -d " " || echo main):svntrunk'
+alias gk='gitk --all --branches &!'
+alias gke='gitk --all $(git log -g --pretty=%h) &!'
+
+# Log
+alias gl='git pull'
+alias glg='git log --stat'
+alias glgp='git log --stat -p'
+alias glgg='git log --graph'
+alias glgga='git log --graph --decorate --all'
+alias glgm='git log --graph --max-count=10'
+alias glo='git log --oneline --decorate'
+alias glol='git log --graph --pretty='\''%Cred%h%Creset -%C(auto)%d%Creset %s %Cgreen(%ar) %C(bold blue)<%an>%Creset'\'
+alias glols='git log --graph --pretty='\''%Cred%h%Creset -%C(auto)%d%Creset %s %Cgreen(%ar) %C(bold blue)<%an>%Creset'\'' --stat'
+alias glod='git log --graph --pretty='\''%Cred%h%Creset -%C(auto)%d%Creset %s %Cgreen(%ad) %C(bold blue)<%an>%Creset'\'
+alias glods='git log --graph --pretty='\''%Cred%h%Creset -%C(auto)%d%Creset %s %Cgreen(%ad) %C(bold blue)<%an>%Creset'\'' --date=short'
+alias glola='git log --graph --pretty='\''%Cred%h%Creset -%C(auto)%d%Creset %s %Cgreen(%ar) %C(bold blue)<%an>%Creset'\'' --all'
+alias glog='git log --oneline --decorate --graph'
+alias gloga='git log --oneline --decorate --graph --all'
+alias glp='git log --pretty=<format>'
+
+# Merge
+alias gm='git merge'
+alias gmom='git merge origin/$(git rev-parse --abbrev-ref origin/HEAD 2>/dev/null | sed "s|origin/||" || git branch -r | grep -E "origin/(main|master)" | head -1 | sed "s|.*origin/||" | tr -d " " || echo main)'
+alias gmtl='git mergetool --no-prompt'
+alias gmtlvim='git mergetool --no-prompt --tool=vimdiff'
+alias gmum='git merge upstream/$(git rev-parse --abbrev-ref origin/HEAD 2>/dev/null | sed "s|origin/||" || git branch -r | grep -E "origin/(main|master)" | head -1 | sed "s|.*origin/||" | tr -d " " || echo main)'
+alias gma='git merge --abort'
+
+# Push
+alias gp='git push'
+alias gpd='git push --dry-run'
+alias gpf='git push --force-with-lease'
+alias gpf!='git push --force'
+alias gpoat='git push origin --all && git push origin --tags'
+alias gpr='git pull --rebase'
+alias gpu='git push upstream'
+alias gpv='git push -v'
+
+# Remote
+alias gr='git remote'
+alias gra='git remote add'
+alias grb='git rebase'
+alias grba='git rebase --abort'
+alias grbc='git rebase --continue'
+alias grbd='git rebase $(git_develop_branch)'
+alias grbi='git rebase -i'
+alias grbm='git rebase $(git_main_branch)'
+alias grbom='git rebase origin/$(git_main_branch)'
+alias grbo='git rebase --onto'
+alias grbs='git rebase --skip'
+alias grev='git revert'
+alias grh='git reset'
+alias grhh='git reset --hard'
+alias groh='git reset origin/$(git branch --show-current) --hard'
+alias grm='git rm'
+alias grmc='git rm --cached'
+alias grmv='git remote rename'
+alias grrm='git remote remove'
+alias grs='git restore'
+alias grset='git remote set-url'
+alias grss='git restore --source'
+alias grst='git restore --staged'
+alias grt='cd "$(git rev-parse --show-toplevel || echo .)"'
+alias gru='git reset --'
+alias grup='git remote update'
+alias grv='git remote -v'
+
+# Status
+alias gsd='git svn dcommit'
+alias gsh='git show'
+alias gsi='git submodule init'
+alias gsps='git show --pretty=short --show-signature'
+alias gsr='git svn rebase'
+alias gss='git status -s'
+alias gst='git status'
+alias gsta='git stash push'
+alias gstaa='git stash apply'
+alias gstc='git stash clear'
+alias gstd='git stash drop'
+alias gstl='git stash list'
+alias gstp='git stash pop'
+alias gsts='git stash show --text'
+alias gstu='git stash --include-untracked'
+alias gstall='git stash --all'
+alias gsu='git submodule update'
+alias gsw='git switch'
+alias gswc='git switch -c'
+alias gswm='git switch $(git rev-parse --abbrev-ref origin/HEAD 2>/dev/null | sed "s|origin/||" || git branch -r | grep -E "origin/(main|master)" | head -1 | sed "s|.*origin/||" | tr -d " " || echo main)'
+alias gswd='git switch develop'
+
+# Tag
+alias gts='git tag -s'
+alias gtv='git tag | sort -V'
+alias gtl='gtl(){ git tag --sort=-v:refname -n -l ${1}* }; noglob gtl'
+alias gunignore='git update-index --no-assume-unchanged'
+alias gunwip='git log -n 1 | grep -q -c "--wip--" && git reset HEAD~1'
+alias gup='git pull --rebase'
+alias gupv='git pull --rebase -v'
+alias gupa='git pull --rebase --autostash'
+alias gupav='git pull --rebase --autostash -v'
+alias gupom='git pull --rebase origin $(git rev-parse --abbrev-ref origin/HEAD 2>/dev/null | sed "s|origin/||" || git branch -r | grep -E "origin/(main|master)" | head -1 | sed "s|.*origin/||" | tr -d " " || echo main)'
+alias gupomi='git pull --rebase=interactive origin $(git rev-parse --abbrev-ref origin/HEAD 2>/dev/null | sed "s|origin/||" || git branch -r | grep -E "origin/(main|master)" | head -1 | sed "s|.*origin/||" | tr -d " " || echo main)'
+alias glum='git pull upstream $(git rev-parse --abbrev-ref origin/HEAD 2>/dev/null | sed "s|origin/||" || git branch -r | grep -E "origin/(main|master)" | head -1 | sed "s|.*origin/||" | tr -d " " || echo main)'
+alias gluc='git pull upstream $(git branch --show-current)'
+alias gwch='git whatchanged -p --abbrev-commit --pretty=medium'
+alias gwip='git add -A; git rm $(git ls-files --deleted) 2> /dev/null; git commit --no-verify --no-gpg-sign -m "--wip-- [skip ci]"'
+
+# Apply Mailbox
+alias gam='git am'
+alias gamc='git am --continue'
+alias gams='git am --skip'
+alias gama='git am --abort'
+alias gamscp='git am --show-current-patch'
+
+gwt() {
+  case "$*" in
+    *-h*|*--help*|*prune*)
+      git-wt2 "$@"
+      return
+      ;;
+    *-r*|*--remove*)
+      # Get main worktree before removing (in case we're inside the one being deleted)
+      local main_wt
+      main_wt="$(git worktree list --porcelain | grep '^worktree ' | head -1 | cut -d' ' -f2)"
+      git-wt2 "$@" || return
+      # Always cd to main worktree after remove (zsh caches deleted dirs)
+      cd "$main_wt"
+      return
+      ;;
+  esac
+  local dir
+  dir="$(git-wt2 --print-path "$@" | tail -n1)" || return
+  [[ -n "$dir" ]] && cd "$dir"
+}

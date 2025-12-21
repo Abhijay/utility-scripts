@@ -14,19 +14,19 @@ CLEAN_REMOTE=false
 # Parse options
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
-    -c|--clean-local)
-      CLEAN_LOCAL=true
-      shift
-      ;;
-    -r|--clean-remote)
-      CLEAN_REMOTE=true
-      shift
-      ;;
-    *)
-      echo "Unknown option: $1"
-      echo "Usage: $0 [--clean-local | -c] [--clean-remote | -r]"
-      exit 1
-      ;;
+  -c | --clean-local)
+    CLEAN_LOCAL=true
+    shift
+    ;;
+  -r | --clean-remote)
+    CLEAN_REMOTE=true
+    shift
+    ;;
+  *)
+    echo "Unknown option: $1"
+    echo "Usage: $0 [--clean-local | -c] [--clean-remote | -r]"
+    exit 1
+    ;;
   esac
 done
 
@@ -98,14 +98,16 @@ if [[ "$CLEAN_REMOTE" == true ]]; then
   done
 fi
 
-# 3) If neither flag is passed, list remote merged branches that remain
+# 3) If neither flag is passed, list local merged branches that remain
 if [[ "$CLEAN_LOCAL" == false && "$CLEAN_REMOTE" == false ]]; then
-  for branch in $remote_branches; do
+  for branch in $local_branches; do
 
     # Skip branches that contain dev, main, master, or staging
     if [[ "$branch" =~ (dev|main|master|staging) ]]; then
       continue
     fi
+
+    echo -e "Checking branch '${YELLOW}$branch${RESET}"
 
     if has_merged_pr "$branch"; then
       echo -e "Branch '${YELLOW}$branch${RESET}' has a merged PR but hasn't been deleted. (Use -c or -r to delete.)"

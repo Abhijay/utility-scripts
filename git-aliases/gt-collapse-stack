@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# gt-collapse-stack
+# Collapses the current branch's lineage down to trunk.
+# The current branch keeps its name but gets reparented to trunk.
+# Automatically closes intermediate PRs on GitHub.
+# Only affects the direct lineage - sibling branches are untouched.
+
+# Get the current branch name (the one we want to keep)
+TOP_BRANCH=$(git branch --show-current)
+TRUNK=$(gt trunk 2>/dev/null || echo "main")
+
+echo "📍 Collapsing lineage for: $TOP_BRANCH"
+
+# Collect PRs to close (all ancestors except trunk)
+PRS_TO_CLOSE=()
+
+# Keep folding until we hit trunk
+while true; do
+  PARENT=$(gt parent 2>/dev/null || echo "")
+
+  if [[ -z "$PARENT" || "$PARENT" == "$TRUNK" ]]; then
+    echo "✅ Stack collapsed! $TOP_BRANCH is now based on $TRUNK"
+    break
+  fi
+
+  # Get the PR number for the parent branch before folding
+  PR_NUM=$(gt info --branch "$PARENT" 2>&1 | grep -oE 'PR #[0-9]+' | grep -oE '[0-9]+' || echo "")
+  if [[ -n "$PR_NUM" ]]; then
+    PRS_TO_CLOSE+=("$PR_NUM")
+  fi
+
+  echo "🔄 Folding $PARENT into $TOP_BRANCH..."
+  gt fold --keep --no-interactive
+done
+
+# Close the intermediate PRs
+if [[ ${#PRS_TO_CLOSE[@]} -gt 0 ]]; then
+  echo ""
+  echo "🔒 Closing ${#PRS_TO_CLOSE[@]} intermediate PR(s)..."
+  for PR in "${PRS_TO_CLOSE[@]}"; do
+    echo "   Closing PR #$PR..."
+    gh pr close "$PR" --comment "Collapsed into stack top branch: $TOP_BRANCH" || echo "   ⚠️  Failed to close PR #$PR"
+  done
+fi
+
+echo ""
+gt log short --stack

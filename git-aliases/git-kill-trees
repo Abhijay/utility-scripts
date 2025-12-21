@@ -1,0 +1,129 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+MODE="preview"
+DAYS=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --hide) MODE="hide"; shift ;;
+    -d) DAYS="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+
+RED="\033[31m"
+RESET="\033[0m"
+
+###############################################
+# 1. Read smartlog output and collect hashes
+###############################################
+
+echo "🔍 Reading smartlog to find commits…" >&2
+SMARTLOG="$(git smartlog)"
+
+declare -A PRESENT_IN_SMARTLOG
+
+# Extract hashes from smartlog robustly
+while IFS= read -r line; do
+  hash_token=$(echo "$line" | awk '
+    {
+      for (i=1; i<=NF; i++) {
+        gsub(/[^0-9a-f]/, "", $i);
+        if (length($i) >= 7) { print $i; exit; }
+      }
+    }
+  ')
+  if [[ -n "$hash_token" ]]; then
+    full=$(git rev-parse --verify "${hash_token}^{commit}" 2>/dev/null || true)
+    [[ -n "$full" ]] && PRESENT_IN_SMARTLOG[$full]=1
+  fi
+done <<<"$SMARTLOG"
+
+###############################################
+# 2. Detect stragglers: commits not reachable 
+#    from ANY ref (branches/tags/remotes)
+###############################################
+
+echo "🔍 Detecting stragglers (not reachable from any branch/tag)..." >&2
+
+declare -A GOOD
+while read -r c; do GOOD[$c]=1; done < <(
+  git rev-list --branches --remotes --tags
+)
+
+declare -A STRAGGLER
+
+# Calculate cutoff timestamp if -d was provided
+CUTOFF_TS=""
+if [[ -n "$DAYS" ]]; then
+  CUTOFF_TS=$(date -v-"${DAYS}"d +%s 2>/dev/null || date -d "${DAYS} days ago" +%s)
+fi
+
+for full in "${!PRESENT_IN_SMARTLOG[@]}"; do
+  if [[ -z "${GOOD[$full]:-}" ]]; then
+    # If -d is specified, only include commits within the time window
+    if [[ -n "$CUTOFF_TS" ]]; then
+      commit_ts=$(git show -s --format=%ct "$full" 2>/dev/null || echo "0")
+      if [[ "$commit_ts" -lt "$CUTOFF_TS" ]]; then
+        continue
+      fi
+    fi
+    STRAGGLER[$full]=1
+  fi
+done
+
+###############################################
+# 3. Render smartlog with red stragglers
+###############################################
+
+echo "🧠 Rendering smartlog (stragglers in red)..." >&2
+echo >&2
+
+straggler_list=()
+
+while IFS= read -r line; do
+  hash_token=$(echo "$line" | awk '
+    {
+      for (i=1; i<=NF; i++) {
+        gsub(/[^0-9a-f]/, "", $i);
+        if (length($i) >= 7) { print $i; exit; }
+      }
+    }
+  ')
+
+  full=""
+  if [[ -n "$hash_token" ]]; then
+    full=$(git rev-parse --verify "${hash_token}^{commit}" 2>/dev/null || true)
+  fi
+
+  if [[ -n "$full" && -n "${STRAGGLER[$full]:-}" ]]; then
+    straggler_list+=("$full")
+
+    if [[ "$MODE" == "hide" ]]; then
+      echo -e "${RED}${line}   [will hide]${RESET}"
+    else
+      echo -e "${RED}${line}${RESET}"
+    fi
+    continue
+  fi
+
+  echo "$line"
+done <<<"$SMARTLOG"
+
+echo >&2
+
+###############################################
+# 4. Apply hide mode
+###############################################
+
+if [[ "$MODE" == "hide" ]]; then
+  echo "🔧 Hiding ${#straggler_list[@]} commits..." >&2
+  echo >&2
+  for s in "${straggler_list[@]}"; do
+    echo "  git branchless hide $s" >&2
+    git branchless hide "$s"
+  done
+  echo >&2
+  echo "✅ Done hiding unreachable ghost commits." >&2
+fi

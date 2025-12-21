@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+main_branch="main"
+
+echo "🔍 Detecting tree-based straggler lineages…"
+
+# Build a map: TREE_HASH → [LIST OF COMMITS]
+declare -A tree_to_commits
+
+while read -r commit tree; do
+    tree_to_commits["$tree"]+="$commit "
+done < <(git rev-list --all --format="%T" --no-abbrev-commit --pretty=format: | grep -v '^commit ')
+
+# Now find trees that correspond to multiple commits
+for tree in "${!tree_to_commits[@]}"; do
+    commits=(${tree_to_commits[$tree]})
+
+    # Only interesting if tree reused (rewrite)
+    if (( ${#commits[@]} < 2 )); then
+        continue
+    fi
+
+    merged=""
+    stragglers=()
+
+    # Classify each commit version
+    for c in "${commits[@]}"; do
+        if git merge-base --is-ancestor "$c" "$main_branch" 2>/dev/null; then
+            merged="$c"
+        else
+            stragglers+=("$c")
+        fi
+    done
+
+    # Only a straggler lineage if we found a merged version + non-merged versions
+    if [[ -n "$merged" && ${#stragglers[@]} -gt 0 ]]; then
+        echo
+        echo "🚨 Straggler lineage (tree=$tree)"
+        echo "✔ merged: $merged"
+        for s in "${stragglers[@]}"; do
+            echo "❌ straggler: $s"
+        done
+    fi
+done
