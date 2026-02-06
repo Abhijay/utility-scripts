@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git worktree:*)",
+      "Bash(chmod:*)",
+      "Bash(python3:*)",
+      "Bash(git fetch:*)",
+      "Bash(export WT_SCRIPT=\"/Users/abhijay/code/scripts/git-aliases/git-wt.py\")",
+      "Bash(git config:*)",
+      "Bash(echo:*)",
+      "Bash(git branch:*)",
+      "Bash(git push:*)",
+      "Bash(grep:*)"
+    ]
+  }
+}

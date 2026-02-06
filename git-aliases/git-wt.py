@@ -6,6 +6,9 @@ import re
 import shutil
 import subprocess
 import sys
+import shlex
+import os
+import concurrent.futures
 from pathlib import Path
 from typing import Iterable, List, Tuple
 
@@ -138,6 +141,25 @@ def worktrees() -> Iterable[Tuple[Path, str]]:
         elif line.startswith("branch ") and wt:
             yield wt, line.split()[1].removeprefix("refs/heads/")
 
+def worktree_for_branch(branch: str) -> Path | None:
+    for path, b in worktrees():
+        if b == branch:
+            return path
+    return None
+
+
+# -----------------------------------------------------------------------------
+# env file copying
+# -----------------------------------------------------------------------------
+
+def copy_env_files(dest: Path) -> None:
+    """Symlink all .env* files from main worktree to the new worktree."""
+    main = main_worktree()
+    for env_file in main.glob(".env*"):
+        if env_file.is_file():
+            target = dest / env_file.name
+            if not target.exists():
+                os.symlink(env_file.resolve(), target)
 
 # -----------------------------------------------------------------------------
 # subcommands
@@ -159,6 +181,7 @@ def cmd_new(branch: str) -> None:
     else:
         git("worktree", "add", "-b", branch, str(path))
 
+    copy_env_files(path)
     print(path)
 
 
@@ -174,6 +197,7 @@ def cmd_checkout(ref: str) -> None:
     ) == 0:
         path = base / ref
         git("worktree", "add", str(path), ref)
+        copy_env_files(path)
         print(path)
         return
 
@@ -186,6 +210,7 @@ def cmd_checkout(ref: str) -> None:
         local = ref.split("/")[-1]
         path = base / local  # Use local branch name for path, not full remote ref
         git("worktree", "add", "-b", local, str(path), ref)
+        copy_env_files(path)
         print(path)
         return
 
@@ -193,6 +218,22 @@ def cmd_checkout(ref: str) -> None:
     path_name = ref[:12] if len(ref) == 40 and all(c in "0123456789abcdef" for c in ref.lower()) else ref
     path = base / path_name
     git("worktree", "add", "--detach", str(path), ref)
+    copy_env_files(path)
+    print(path)
+
+
+def cmd_dev(worktree_name: str | None) -> None:
+    """Print worktree path for dev command (shell wrapper runs npm run dev)."""
+    if worktree_name:
+        path = worktree_for_branch(worktree_name)
+        if path is None:
+            sys.exit(f"no worktree found for branch: {worktree_name}")
+    else:
+        result = select_worktree()
+        if result is None:
+            return
+        path = result[0]
+
     print(path)
 
 
@@ -248,39 +289,67 @@ def cmd_prune(force: bool) -> None:
     for p in prunable:
         git("worktree", "remove", str(p))
 
+def _status_and_time(path: Path) -> Tuple[bool, str]:
+    dirty = bool(git("status", "--porcelain", cwd=path))
+    raw_time = git("log", "-1", "--pretty=%cr", cwd=path, check=False)
+    return dirty, raw_time
 
-# -----------------------------------------------------------------------------
-# interactive selector
-# -----------------------------------------------------------------------------
 
-def interactive(remove: bool, print_path: bool, force: bool = False) -> None:
-    # Use minimum 160 width so paths aren't over-truncated; fzf handles scrolling
-    term_width = max(160, shutil.get_terminal_size(fallback=(160, 0)).columns)
-    w_branch = 35  # Fixed width for branch name
-    w_state, w_time, w_up = 6, 6, 7
-
-    rows: List[str] = []
-
-    for path, branch in worktrees():
-        # Skip stale worktrees (path no longer exists on disk)
-        if not path.exists():
-            continue
-
-        dirty = bool(git("status", "--porcelain", cwd=path))
-        state = f"{C.RED}dirty{C.RESET}" if dirty else f"{C.GREEN}clean{C.RESET}"
-
-        raw_time = git("log", "-1", "--pretty=%cr", cwd=path, check=False)
-        time = f"{C.YELLOW}{short_time(raw_time)}{C.RESET}" if raw_time else ""
-
-        has_up = subprocess.call(
+def _has_upstream(path: Path) -> bool:
+    return (
+        subprocess.call(
             ["git", "rev-parse", "@{u}"],
             cwd=path,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-        ) == 0
-        upstream = f"{C.BLUE}up{C.RESET}" if has_up else f"{C.MAGENTA}local{C.RESET}"
+        )
+        == 0
+    )
 
-        # Two-line format: branch + metadata on line 1, path on line 2, separator line
+
+def build_rows(*, include_upstream: bool) -> List[str]:
+    w_branch = 35  # Fixed width for branch name
+    w_state, w_time, w_up = 6, 6, 7
+
+    items: List[Tuple[Path, str]] = [(p, b) for p, b in worktrees() if p.exists()]
+    if not items:
+        return []
+
+    max_workers = min(32, (os.cpu_count() or 4) * 2, max(4, len(items)))
+
+    status_time: dict[Path, Tuple[bool, str]] = {}
+    upstream_ok: dict[Path, bool] = {}
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as ex:
+        st_futs = {ex.submit(_status_and_time, p): p for p, _ in items}
+        for fut in concurrent.futures.as_completed(st_futs):
+            p = st_futs[fut]
+            try:
+                status_time[p] = fut.result()
+            except Exception:
+                status_time[p] = (False, "")
+
+        if include_upstream:
+            up_futs = {ex.submit(_has_upstream, p): p for p, _ in items}
+            for fut in concurrent.futures.as_completed(up_futs):
+                p = up_futs[fut]
+                try:
+                    upstream_ok[p] = fut.result()
+                except Exception:
+                    upstream_ok[p] = False
+
+    rows: List[str] = []
+    for path, branch in items:
+        dirty, raw_time = status_time.get(path, (False, ""))
+        state = f"{C.RED}dirty{C.RESET}" if dirty else f"{C.GREEN}clean{C.RESET}"
+        time = f"{C.YELLOW}{short_time(raw_time)}{C.RESET}" if raw_time else ""
+
+        if include_upstream:
+            has_up = upstream_ok.get(path, False)
+            upstream = f"{C.BLUE}up{C.RESET}" if has_up else f"{C.MAGENTA}local{C.RESET}"
+        else:
+            upstream = ""
+
         line1 = (
             f"{truncate_right(branch, w_branch)}"
             f"{pad_ansi(state, w_state)} "
@@ -288,24 +357,56 @@ def interactive(remove: bool, print_path: bool, force: bool = False) -> None:
             f"{pad_ansi(upstream, w_up)}"
         )
         line2 = f"{C.DIM}{relpath(path)}{C.RESET}"
-        row = f"{line1}\n{line2}\t{path}\t{branch}"
-        rows.append(row)
+        rows.append(f"{line1}\n{line2}\t{path}\t{branch}")
 
+    return rows
+
+
+# -----------------------------------------------------------------------------
+# interactive selector
+# -----------------------------------------------------------------------------
+
+def select_worktree() -> Tuple[Path, str] | None:
+    """Interactive worktree selector. Returns (path, branch) or None."""
+    rows = build_rows(include_upstream=True)
     if not rows:
-        return
+        return None
+
+    self_path = Path(sys.argv[0])
+    self_cmd = shlex.quote(str(self_path.resolve())) if self_path.exists() else shlex.quote(sys.argv[0])
+    reload_cmd = f"{self_cmd} --__list --__detailed"
 
     p = subprocess.run(
-        ["fzf", "--ansi", "--read0", "--multi-line", "--delimiter=\t", "--with-nth=1", "--gap", "--highlight-line"],
-        input="\0".join(rows),
+        [
+            "fzf",
+            "--ansi",
+            "--read0",
+            "--multi-line",
+            "--delimiter=\t",
+            "--with-nth=1",
+            "--gap",
+            "--highlight-line",
+            "--no-select-1",
+            "--bind",
+            f"ctrl-r:reload({reload_cmd})",
+        ],
+        input="\0".join(rows) + "\0",
         text=True,
         stdout=subprocess.PIPE,
     )
     if not p.stdout:
-        return
+        return None
 
     parts = p.stdout.rstrip("\n").split("\t")
-    selected = Path(parts[-2])
-    branch = parts[-1]
+    return Path(parts[-2]), parts[-1]
+
+
+def interactive(remove: bool, print_path: bool, force: bool = False) -> None:
+    result = select_worktree()
+    if result is None:
+        return
+
+    selected, branch = result
     if remove:
         # Check if branch is fully merged before removing anything
         if not force:
@@ -319,7 +420,11 @@ def interactive(remove: bool, print_path: bool, force: bool = False) -> None:
 
         # Get main repo path before removing worktree (in case we're inside it)
         main_repo = main_worktree()
-        git("worktree", "remove", str(selected), cwd=main_repo)
+        remove_args = ["worktree", "remove"]
+        if force:
+            remove_args.append("--force")
+        remove_args.append(str(selected))
+        git(*remove_args, cwd=main_repo)
         delete_flag = "-D" if force else "-d"
         del_result = subprocess.run(
             ["git", "branch", delete_flag, branch],
@@ -351,12 +456,15 @@ def main() -> None:
 commands:
   new <branch>      Create worktree for new or existing branch
   checkout <ref>    Checkout branch/commit into worktree (alias: co)
+  dev [branch]      Run npm run dev in worktree (interactive if no branch)
   prune             Remove worktrees fully synced with upstream
 
 examples:
   gwt                    Interactive worktree selector (cd into selection)
   gwt new feature-x      Create worktree for 'feature-x' branch
   gwt co origin/main     Checkout remote branch into worktree
+  gwt dev                Interactive picker, then run npm run dev
+  gwt dev feature-x      Run npm run dev in feature-x worktree
   gwt -r                 Interactive remove worktree
   gwt -r -f              Remove worktree and force delete branch
   gwt prune              Remove fully-synced worktrees
@@ -374,10 +482,18 @@ config:
     ap.add_argument("-f", "--force", action="store_true", help="force (prune: skip confirm, -r: delete unmerged branch)")
     ap.add_argument("-n", "--no-interactive", action="store_true", help="non-interactive mode")
     ap.add_argument("--print-path", action="store_true", help="print path instead of cd")
+    ap.add_argument("--__list", action="store_true", help=argparse.SUPPRESS)
+    ap.add_argument("--__detailed", action="store_true", help=argparse.SUPPRESS)
     ap.add_argument("cmd", nargs="?", metavar="CMD", help="new|checkout|co|prune")
     ap.add_argument("arg", nargs="?", metavar="ARG", help="branch name or ref")
 
     args = ap.parse_args()
+
+    if args.__list:
+        rows = build_rows(include_upstream=args.__detailed)
+        if rows:
+            sys.stdout.write("\0".join(rows) + "\0")
+        return
 
     if args.cmd == "new":
         if not args.arg:
@@ -392,7 +508,17 @@ config:
     elif args.cmd == "prune":
         cmd_prune(force=args.force or args.no_interactive)
 
+    elif args.cmd == "dev":
+        cmd_dev(args.arg)
+
     else:
+        if args.cmd and not args.arg:
+            wt = worktree_for_branch(args.cmd)
+            if wt is None:
+                sys.exit(f"no worktree found for branch: {args.cmd}")
+            print(wt)
+            return
+
         if args.no_interactive:
             if args.print_path:
                 print(Path.cwd())

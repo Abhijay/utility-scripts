@@ -287,3 +287,4 @@ gwt() {
   dir="$(git-wt2 --print-path "$@" | tail -n1)" || return
   [[ -n "$dir" ]] && cd "$dir"
 }
+source /Users/abhijay/code/scripts/git-aliases/gwt

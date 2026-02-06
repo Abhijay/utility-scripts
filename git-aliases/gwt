@@ -10,6 +10,12 @@ gwt() {
       git-wt.py "$@"
       return
       ;;
+    dev|dev\ *)
+      local dir
+      dir="$(git-wt.py "$@" | tail -n1)" || return
+      [[ -n "$dir" ]] && cd "$dir" && npm run dev
+      return
+      ;;
     *-r*|*--remove*)
       # Get main worktree before removing (in case we're inside the one being deleted)
       local main_wt
@@ -17,6 +23,20 @@ gwt() {
       git-wt.py "$@" || return
       # Always cd to main worktree after remove (zsh caches deleted dirs)
       cd "$main_wt"
+      return
+      ;;
+    new\ *)
+      local dir
+      dir="$(git-wt.py "$@" | tail -n1)" || return
+      [[ -n "$dir" ]] && cd "$dir"
+      # Install dependencies in the background
+      if [[ -f "pnpm-lock.yaml" ]]; then
+        (pnpm i &>/dev/null &)
+      elif [[ -f "package-lock.json" ]]; then
+        (npm i &>/dev/null &)
+      elif [[ -f "yarn.lock" ]]; then
+        (yarn install &>/dev/null &)
+      fi
       return
       ;;
   esac

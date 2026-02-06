@@ -1,0 +1,27 @@
+#!/bin/bash
+
+set -e
+
+# Find the actual git directory
+if [ -f .git ]; then
+    # Worktree case: .git is a file containing "gitdir: /path/to/git/dir"
+    GIT_DIR=$(cat .git | sed 's/^gitdir: //')
+elif [ -d .git ]; then
+    # Normal repo case: .git is a directory
+    GIT_DIR=".git"
+else
+    echo "Error: Not in a git repository"
+    exit 1
+fi
+
+# Look for index.lock
+INDEX_LOCK="$GIT_DIR/index.lock"
+
+if [ -f "$INDEX_LOCK" ]; then
+    echo "Found index.lock at: $INDEX_LOCK"
+    rm -f "$INDEX_LOCK"
+    echo "✓ Deleted index.lock"
+else
+    echo "No index.lock file found at: $INDEX_LOCK"
+    exit 1
+fi

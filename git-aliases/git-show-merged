@@ -10,6 +10,7 @@ RESET="\033[0m"
 
 CLEAN_LOCAL=false
 CLEAN_REMOTE=false
+NO_VERIFY=false
 
 # Parse options
 while [[ "$#" -gt 0 ]]; do
@@ -22,9 +23,13 @@ while [[ "$#" -gt 0 ]]; do
     CLEAN_REMOTE=true
     shift
     ;;
+  -n | --no-verify)
+    NO_VERIFY=true
+    shift
+    ;;
   *)
     echo "Unknown option: $1"
-    echo "Usage: $0 [--clean-local | -c] [--clean-remote | -r]"
+    echo "Usage: $0 [--clean-local | -c] [--clean-remote | -r] [--no-verify | -n]"
     exit 1
     ;;
   esac
@@ -56,6 +61,18 @@ has_merged_pr() {
 echo "Checking for branches with merged PRs..."
 echo ""
 
+confirm_delete() {
+  local prompt="$1"
+  local reply
+
+  if [[ "$NO_VERIFY" == true ]]; then
+    return 0
+  fi
+
+  read -r -p "$prompt [y/N] " reply
+  [[ "$reply" == "y" || "$reply" == "Y" ]]
+}
+
 # 1) If cleaning local, only check local branches
 if [[ "$CLEAN_LOCAL" == true ]]; then
   for branch in $local_branches; do
@@ -69,7 +86,8 @@ if [[ "$CLEAN_LOCAL" == true ]]; then
       echo -e "${RED}Deleting merged branch locally:${RESET} ${YELLOW}$branch${RESET}"
 
       # Always use force-delete (-D) for merged branches
-      if ! git branch -D "$branch" 2>/dev/null; then
+      if confirm_delete "Delete local branch '$branch'?"; then
+        if ! git branch -D "$branch" 2>/dev/null; then
         # If force-delete failed, print config info
         upstream_merge=$(git config --get "branch.$branch.merge" 2>/dev/null || echo "")
         if [[ -n "$upstream_merge" ]]; then
@@ -77,6 +95,9 @@ if [[ "$CLEAN_LOCAL" == true ]]; then
         fi
 
         echo -e "  Could not force delete branch '${YELLOW}$branch${RESET}'. Please remove manually."
+        fi
+      else
+        echo "Skipped local branch '$branch'."
       fi
     fi
   done
@@ -93,7 +114,11 @@ if [[ "$CLEAN_REMOTE" == true ]]; then
 
     if has_merged_pr "$branch"; then
       echo -e "${RED}Deleting merged branch from origin:${RESET} ${YELLOW}$branch${RESET}"
-      git push origin --delete "$branch" --no-verify
+      if confirm_delete "Delete remote branch 'origin/$branch'?"; then
+        git push origin --delete "$branch" --no-verify
+      else
+        echo "Skipped remote branch 'origin/$branch'."
+      fi
     fi
   done
 fi
@@ -107,7 +132,7 @@ if [[ "$CLEAN_LOCAL" == false && "$CLEAN_REMOTE" == false ]]; then
       continue
     fi
 
-    echo -e "Checking branch '${YELLOW}$branch${RESET}"
+    echo -e "Checking branch '${YELLOW}$branch${RESET}'"
 
     if has_merged_pr "$branch"; then
       echo -e "Branch '${YELLOW}$branch${RESET}' has a merged PR but hasn't been deleted. (Use -c or -r to delete.)"

@@ -1,0 +1,264 @@
+#!/usr/bin/env python3
+"""
+git-treespace: Create a workspace with worktrees from multiple repos.
+
+Workflow:
+1. Run in a folder containing multiple git repos
+2. Multi-select repos with fzf
+3. Enter a branch/feature name
+4. Creates worktrees in each repo with that branch
+5. Creates a workspace folder with symlinks to all worktrees
+"""
+from __future__ import annotations
+
+import argparse
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+
+class C:
+    RED = "\033[31m"
+    GREEN = "\033[32m"
+    YELLOW = "\033[33m"
+    BLUE = "\033[34m"
+    DIM = "\033[2m"
+    RESET = "\033[0m"
+
+
+def find_repos(base: Path) -> list[Path]:
+    """Find all git repositories in the given directory."""
+    repos = []
+    for item in sorted(base.iterdir()):
+        if item.is_dir() and (item / ".git").exists():
+            repos.append(item)
+    return repos
+
+
+def select_repos(repos: list[Path]) -> list[Path]:
+    """Interactive multi-select repos with fzf."""
+    if not repos:
+        return []
+
+    lines = [f"{r.name}" for r in repos]
+    result = subprocess.run(
+        ["fzf", "--multi", "--ansi", "--prompt=Select repos> "],
+        input="\n".join(lines),
+        text=True,
+        capture_output=True,
+    )
+
+    if result.returncode != 0 or not result.stdout.strip():
+        return []
+
+    selected_names = set(result.stdout.strip().split("\n"))
+    return [r for r in repos if r.name in selected_names]
+
+
+def get_worktree_base(repo: Path) -> Path:
+    """Get the worktree base directory for a repo (mirrors git-wt.py logic)."""
+    result = subprocess.run(
+        ["git", "config", "--get", "wt.root"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0 and result.stdout.strip():
+        base = Path(result.stdout.strip()).expanduser().resolve()
+    else:
+        base = repo.parent
+    return base / repo.name
+
+
+def create_worktree(repo: Path, branch: str) -> Path | None:
+    """Create a worktree for the given repo and branch."""
+    base = get_worktree_base(repo)
+    wt_path = base / branch
+
+    if wt_path.exists():
+        print(f"  {C.YELLOW}exists{C.RESET}: {wt_path}")
+        return wt_path
+
+    base.mkdir(parents=True, exist_ok=True)
+
+    # Check if branch exists locally
+    check = subprocess.run(
+        ["git", "show-ref", "--verify", f"refs/heads/{branch}"],
+        cwd=repo,
+        capture_output=True,
+    )
+
+    if check.returncode == 0:
+        cmd = ["git", "worktree", "add", str(wt_path), branch]
+    else:
+        cmd = ["git", "worktree", "add", "-b", branch, str(wt_path)]
+
+    result = subprocess.run(cmd, cwd=repo, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"  {C.RED}failed{C.RESET}: {repo.name}")
+        sys.stderr.write(result.stderr)
+        return None
+
+    # Copy env files (symlink them from main worktree)
+    for env_file in repo.glob(".env*"):
+        if env_file.is_file():
+            target = wt_path / env_file.name
+            if not target.exists():
+                os.symlink(env_file.resolve(), target)
+
+    print(f"  {C.GREEN}created{C.RESET}: {wt_path}")
+    return wt_path
+
+
+def get_treespace_root() -> Path:
+    """Get the root directory for treespaces."""
+    result = subprocess.run(
+        ["git", "config", "--get", "treespace.root"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0 and result.stdout.strip():
+        return Path(result.stdout.strip()).expanduser().resolve()
+    return Path.cwd() / "treespaces"
+
+
+def cmd_new(name: str | None) -> None:
+    """Create a new treespace."""
+    base = Path.cwd()
+    repos = find_repos(base)
+
+    if not repos:
+        sys.exit(f"No git repositories found in {base}")
+
+    print(f"Found {len(repos)} repos in {base}\n")
+
+    selected = select_repos(repos)
+    if not selected:
+        print("No repos selected")
+        return
+
+    if not name:
+        sys.stderr.write("\nBranch/feature name: ")
+        sys.stderr.flush()
+        name = input().strip()
+        if not name:
+            sys.exit("Branch name required")
+
+    print(f"\nCreating worktrees for: {C.BLUE}{name}{C.RESET}\n")
+
+    worktrees: list[tuple[Path, Path]] = []  # (repo, worktree_path)
+    for repo in selected:
+        print(f"{repo.name}:")
+        wt_path = create_worktree(repo, name)
+        if wt_path:
+            worktrees.append((repo, wt_path))
+
+    if not worktrees:
+        sys.exit("\nNo worktrees created")
+
+    # Create treespace folder with symlinks
+    treespace_root = get_treespace_root()
+    treespace = treespace_root / name
+    treespace.mkdir(parents=True, exist_ok=True)
+
+    print(f"\nCreating treespace: {C.BLUE}{treespace}{C.RESET}\n")
+
+    for repo, wt_path in worktrees:
+        link = treespace / repo.name
+        if link.exists() or link.is_symlink():
+            link.unlink()
+        link.symlink_to(wt_path)
+        print(f"  {repo.name} -> {wt_path}")
+
+    print(f"\n{C.GREEN}Done!{C.RESET} cd {treespace}")
+
+
+def cmd_list() -> None:
+    """List existing treespaces."""
+    root = get_treespace_root()
+    if not root.exists():
+        print("No treespaces found")
+        return
+
+    for ts in sorted(root.iterdir()):
+        if ts.is_dir():
+            links = [l.name for l in ts.iterdir() if l.is_symlink()]
+            print(f"{C.BLUE}{ts.name}{C.RESET}: {', '.join(links)}")
+
+
+def cmd_remove(name: str, force: bool) -> None:
+    """Remove a treespace (symlinks only, not the worktrees)."""
+    root = get_treespace_root()
+    treespace = root / name
+
+    if not treespace.exists():
+        sys.exit(f"Treespace not found: {name}")
+
+    if not force:
+        sys.stderr.write(f"Remove treespace '{name}'? [y/N] ")
+        sys.stderr.flush()
+        if input().strip().lower() != "y":
+            return
+
+    # Only remove symlinks and the directory, not actual worktrees
+    for item in treespace.iterdir():
+        if item.is_symlink():
+            item.unlink()
+    treespace.rmdir()
+    print(f"Removed treespace: {name}")
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(
+        description="Create workspaces with worktrees from multiple repos",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+commands:
+  <branch>        Create treespace with given branch name
+  list            List existing treespaces
+  rm <name>       Remove a treespace (symlinks only, keeps worktrees)
+
+examples:
+  git treespace                    Interactive: select repos, enter branch name
+  git treespace feature-auth       Create treespace with branch 'feature-auth'
+  git treespace list               List existing treespaces
+  git treespace rm old-feature     Remove a treespace
+  git treespace rm -f old-feature  Remove without confirmation
+
+fzf controls:
+  Tab             Select/deselect repo
+  Shift+Tab       Deselect repo
+  Enter           Confirm selection
+
+workflow:
+  1. Run in a folder containing multiple git repos
+  2. Multi-select repos with Tab, confirm with Enter
+  3. Enter branch/feature name
+  4. Worktrees created in each repo + treespace folder with symlinks
+
+config:
+  git config --global treespace.root ~/treespaces
+    Set custom treespace directory (default: ./treespaces in current dir)
+""",
+    )
+    ap.add_argument("cmd", nargs="?", help="list|rm|<branch-name>")
+    ap.add_argument("arg", nargs="?", help="treespace name (for rm)")
+    ap.add_argument("-f", "--force", action="store_true", help="skip confirmation")
+
+    args = ap.parse_args()
+
+    if args.cmd == "help":
+        ap.print_help()
+    elif args.cmd == "list":
+        cmd_list()
+    elif args.cmd == "rm":
+        if not args.arg:
+            sys.exit("treespace name required")
+        cmd_remove(args.arg, args.force)
+    else:
+        cmd_new(args.cmd)
+
+
+if __name__ == "__main__":
+    main()
